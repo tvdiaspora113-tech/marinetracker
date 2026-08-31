@@ -21,13 +21,30 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install -r requirements.txt
+
+      # Hiq komentin nëse aktivizon Selenium (ENABLE_SELENIUM=true më poshtë)
+      # - name: Install Chrome + chromedriver
+      #   uses: browser-actions/setup-chrome@v1
+      # - name: Install selenium
+      #   run: pip install selenium
 
       - name: Run tracker
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TRACKER_TZ: "Europe/Tirane"
+          MOVE_THRESHOLD_KM: "5"
+          ENABLE_SELENIUM: "false"
         run: python tracker.py
+
+      - name: Upload log si artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracker-log
+          path: tracker.log
+          retention-days: 14
 
       - name: Commit status.json
         run: |
