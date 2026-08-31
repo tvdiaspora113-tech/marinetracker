@@ -4,5 +4,10 @@ lxml>=5.0
 cloudscraper>=1.2.71
 tzdata>=2024.1
 
-# Opsionale - nevojiten VETËM nëse aktivizon ENABLE_SELENIUM=true
-# selenium>=4.20
+# Kërkohen sepse ENABLE_SELENIUM=true është vlera e parazgjedhur tani.
+# Selenium 4.20+ ka "Selenium Manager" të integruar, që shkarkon vetë
+# chromedriver-in e duhur - nuk nevojitet webdriver-manager si paketë e veçantë.
+selenium>=4.20
+
+# Për ta çaktivizuar Selenium (p.sh. nëse s'të duhet), vendos
+# ENABLE_SELENIUM=false te tracker.yml dhe mund ta heqësh linjën `selenium` më sipër.
