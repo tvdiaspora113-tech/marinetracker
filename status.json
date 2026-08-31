@@ -1,0 +1,14 @@
+{
+  "cig": {
+    "shipper": "MANGOCAR",
+    "model": "GLA 220D",
+    "destination": "DURRES, ALBANIA",
+    "current_status": "Booking Received",
+    "vessel_name": "MV GMT ASTRO V.2609",
+    "etd": "2026-09-02",
+    "eta": "(DURRES, ALBANIA)",
+    "lat": 30.6022,
+    "lon": 124.2133
+  },
+  "vessel": {}
+}
