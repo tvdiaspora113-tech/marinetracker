@@ -32,7 +32,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TRACKER_TZ: "Europe/Tirane"
           MOVE_THRESHOLD_KM: "5"
-          ENABLE_SELENIUM: "true"
+          ENABLE_SELENIUM: "false"
         run: python tracker.py
 
       - name: Upload log si artifact
