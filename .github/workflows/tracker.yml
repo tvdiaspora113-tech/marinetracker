@@ -20,14 +20,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install Chrome (për Selenium)
+        uses: browser-actions/setup-chrome@v1
+
       - name: Install dependencies
         run: pip install -r requirements.txt
-
-      # Hiq komentin nëse aktivizon Selenium (ENABLE_SELENIUM=true më poshtë)
-      # - name: Install Chrome + chromedriver
-      #   uses: browser-actions/setup-chrome@v1
-      # - name: Install selenium
-      #   run: pip install selenium
 
       - name: Run tracker
         env:
@@ -35,7 +32,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TRACKER_TZ: "Europe/Tirane"
           MOVE_THRESHOLD_KM: "5"
-          ENABLE_SELENIUM: "false"
+          ENABLE_SELENIUM: "true"
         run: python tracker.py
 
       - name: Upload log si artifact
