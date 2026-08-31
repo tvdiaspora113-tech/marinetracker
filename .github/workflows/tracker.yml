@@ -20,9 +20,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Chrome (për Selenium)
-        uses: browser-actions/setup-chrome@v1
-
       - name: Install dependencies
         run: pip install -r requirements.txt
 
