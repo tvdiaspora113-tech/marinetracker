@@ -54,7 +54,7 @@ STATUS_FILE = Path("status.json")
 LOG_FILE = Path("tracker.log")
 
 TIMEZONE = os.environ.get("TRACKER_TZ", "Europe/Tirane")
-QUIET_START = dtime(22, 0)
+QUIET_START = dtime(3, 0)
 QUIET_END = dtime(6, 0)
 
 MOVE_THRESHOLD_KM = float(os.environ.get("MOVE_THRESHOLD_KM", "5"))
