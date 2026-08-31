@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Monitoron statusin e dërgesës (CIG) dhe pozicionin e anijes (VesselFinder/MarineTraffic).
+"""Monitoron statusin e dërgesës (CIG) dhe pozicionin e anijes.
+
+Burimet e pozicionit të anijes, me radhë: VesselFinder (cloudscraper),
+MarineTraffic (cloudscraper), MyShipTracking (cloudscraper), FleetMon
+(cloudscraper), dhe Selenium -> VesselFinder (aktiv si parazgjedhje).
 
 Ekzekutohet çdo 2 orë nga GitHub Actions. Dërgon njoftime në Telegram kur:
   - statusi i dërgesës në CIG ndryshon
@@ -39,6 +43,14 @@ CIG_URL = f"https://www.cigbooking.com/track/{VIN}"
 VF_URL = f"https://www.vesselfinder.com/?imo={IMO}"
 MT_URL = f"https://www.marinetraffic.com/en/ais/details/ships/imo:{IMO}"
 
+# MyShipTracking dhe FleetMon përdorin URL me "slug" (emri i anijes + ID),
+# jo vetëm IMO si VesselFinder/MarineTraffic. Anija aktuale është GMT ASTRO
+# (IMO 8606056, MMSI 373817000). Nëse dërgesa juaj kalon ndonjëherë në një
+# anije tjetër, këto dy URL duhen përditësuar manualisht (kërko emrin e ri
+# të anijes në sitin përkatës dhe kopjo URL-në e re këtu).
+MST_URL = "https://www.myshiptracking.com/vessels/gmt-astro-mmsi-373817000-imo-8606056"
+FM_URL = "https://www.fleetmon.com/vessels/gmt-astro_8606056_36632/"
+
 STATUS_FILE = Path("status.json")
 LOG_FILE = Path("tracker.log")
 
@@ -53,9 +65,10 @@ FAILURE_ALERT_THRESHOLD = 2
 RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 30
 
-# Selenium është OPSIONAL (fikur si parazgjedhje, siç u kërkua). Aktivizohet
-# duke vendosur ENABLE_SELENIUM=true si environment variable / secret.
-ENABLE_SELENIUM = os.environ.get("ENABLE_SELENIUM", "false").lower() == "true"
+# Selenium tani është AKTIV si parazgjedhje (VesselFinder/MarineTraffic e
+# renderizojnë pozicionin me JavaScript, kështu që cloudscraper vetëm shpesh
+# s'mjafton). Mund të çaktivizohet duke vendosur ENABLE_SELENIUM=false.
+ENABLE_SELENIUM = os.environ.get("ENABLE_SELENIUM", "true").lower() == "true"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -345,6 +358,83 @@ def fetch_marinetraffic_cloudscraper() -> dict:
     return data
 
 
+# --------------------------------------------------------- MYSHIPTRACKING --
+# MyShipTracking e shkruan pozicionin aktual edhe si tekst i thjeshtë brenda
+# një paragrafi "Current position of X is in Y with coordinates LAT° / LON°"
+# që renderizohet server-side (jo vetëm në JS), prandaj cloudscraper/requests
+# e sheh normalisht pa nevojë për Selenium.
+
+def parse_myshiptracking(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(" ", strip=True)
+    data = {}
+
+    m = re.search(
+        r"coordinates\D{0,10}(-?\d{1,3}\.\d+)°?\s*/\s*(-?\d{1,3}\.\d+)°?",
+        text,
+    )
+    if not m:
+        # rezervë: ndonjë hyrje në tabelën e "Events" (LAT / LON)
+        m = re.search(r"(-?\d{1,2}\.\d{4,6})\s*/\s*(-?\d{1,3}\.\d{4,6})", text)
+    if m:
+        data["lat"] = float(m.group(1))
+        data["lon"] = float(m.group(2))
+
+    dest_m = re.search(r"heading at the port of\s+([A-Z][A-Za-z0-9 .\-']+?)[\.\n]", text)
+    if dest_m:
+        data["destination"] = dest_m.group(1).strip()
+
+    eta_m = re.search(
+        r"estimated time of arrival[^0-9]*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", text
+    )
+    if eta_m:
+        data["eta"] = eta_m.group(1)
+
+    status_m = re.search(r"\bStatus\b\s+([A-Za-z][A-Za-z ]+?)\s+Speed", text)
+    if status_m:
+        data["nav_status"] = status_m.group(1).strip()
+
+    return data
+
+
+def fetch_myshiptracking_cloudscraper() -> dict:
+    html = http_get(MST_URL, use_cloudscraper=True)
+    data = parse_myshiptracking(html)
+    if data.get("lat") is None:
+        raise RuntimeError("MyShipTracking (cloudscraper): s'u gjetën koordinata")
+    return data
+
+
+# --------------------------------------------------------------- FLEETMON --
+# KUJDES: FleetMon e fsheh pozicionin e saktë ("●●●●●●") pas një llogarie
+# falas/me pagesë ("Register for free to view live position"). Kjo do të
+# thotë që fetch_fleetmon_cloudscraper() ka gjasa të dështojë vazhdimisht pa
+# një sesion të loguar. E mbajmë si burim shtesë (rast se ndonjëherë
+# koordinatat shfaqen publikisht për ndonjë anije), por mos u befaso nëse
+# gjithmonë raporton dështim — kjo pritet me llogari të palogum.
+
+def parse_fleetmon(html: str) -> dict:
+    data = {}
+    m = re.search(r'"lat(?:itude)?"\s*:\s*(-?\d{1,3}\.\d+)\s*,\s*"lon(?:g|gitude)?"\s*:\s*(-?\d{1,3}\.\d+)', html, re.I)
+    if not m:
+        m = re.search(r'data-lat(?:itude)?="(-?\d{1,3}\.\d+)"\s+data-lon(?:g|gitude)?="(-?\d{1,3}\.\d+)"', html, re.I)
+    if m:
+        data["lat"] = float(m.group(1))
+        data["lon"] = float(m.group(2))
+    return data
+
+
+def fetch_fleetmon_cloudscraper() -> dict:
+    html = http_get(FM_URL, use_cloudscraper=True)
+    data = parse_fleetmon(html)
+    if data.get("lat") is None:
+        raise RuntimeError(
+            "FleetMon (cloudscraper): s'u gjetën koordinata (ka gjasa të kërkojë "
+            "llogari të loguar për pozicionin live)"
+        )
+    return data
+
+
 # --------------------------------------------------------- SELENIUM ---
 # Fallback opsional, fikur si parazgjedhje. Kërkon Chrome + chromedriver
 # (shto hapa shtesë në workflow-n YAML nëse e aktivizon, shih udhëzimet).
@@ -379,12 +469,15 @@ def fetch_vesselfinder_selenium() -> dict:
 
 def get_vessel_position() -> tuple[dict, str]:
     """Provon me radhë: cloudscraper -> VesselFinder, cloudscraper ->
-    MarineTraffic, dhe (nëse aktivizuar) Selenium -> VesselFinder.
+    MarineTraffic, cloudscraper -> MyShipTracking, cloudscraper -> FleetMon,
+    dhe (nëse aktivizuar, si parazgjedhje po) Selenium -> VesselFinder.
     Kthen (të dhëna, emri_burimit) ose ({}, "asnjë") nëse dështojnë të gjitha.
     """
     attempts = [
         ("VesselFinder/cloudscraper", fetch_vesselfinder_cloudscraper),
         ("MarineTraffic/cloudscraper", fetch_marinetraffic_cloudscraper),
+        ("MyShipTracking/cloudscraper", fetch_myshiptracking_cloudscraper),
+        ("FleetMon/cloudscraper", fetch_fleetmon_cloudscraper),
     ]
     if ENABLE_SELENIUM:
         attempts.append(("VesselFinder/selenium", fetch_vesselfinder_selenium))
