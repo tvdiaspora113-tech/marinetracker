@@ -7,25 +7,18 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-02",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 37.4579,
-    "lon": 126.6238
+    "lat": 37.4628,
+    "lon": 126.613
   },
   "vessel": {
-    "lat": 37.45794,
-    "lon": 126.62382,
+    "lat": 37.4624,
+    "lon": 126.6118,
     "destination": "INCHEON",
     "eta": "2026-09-01 20:54",
     "nav_status": "Moored",
     "source": "MyShipTracking/cloudscraper"
   },
   "history": [
-    {
-      "timestamp": "2026-09-02T22:30:47Z",
-      "cig_status": "Ready for Loading",
-      "vessel_lat": 37.45799,
-      "vessel_lon": 126.62382,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
     {
       "timestamp": "2026-09-03T03:52:22Z",
       "cig_status": "Ready for Loading",
@@ -87,6 +80,13 @@
       "cig_status": "Ready for Loading",
       "vessel_lat": 37.45794,
       "vessel_lon": 126.62382,
+      "vessel_source": "MyShipTracking/cloudscraper"
+    },
+    {
+      "timestamp": "2026-09-04T22:17:09Z",
+      "cig_status": "Ready for Loading",
+      "vessel_lat": 37.4624,
+      "vessel_lon": 126.6118,
       "vessel_source": "MyShipTracking/cloudscraper"
     }
   ],
