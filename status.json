@@ -12,20 +12,13 @@
   },
   "vessel": {
     "lat": 37.46233,
-    "lon": 126.61171,
+    "lon": 126.61173,
     "destination": "INCHEON",
     "eta": "2026-09-01 20:54",
     "nav_status": "Moored",
     "source": "MyShipTracking/cloudscraper"
   },
   "history": [
-    {
-      "timestamp": "2026-09-04T22:17:09Z",
-      "cig_status": "Ready for Loading",
-      "vessel_lat": 37.4624,
-      "vessel_lon": 126.6118,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
     {
       "timestamp": "2026-09-05T03:50:41Z",
       "cig_status": "Ready for Loading",
@@ -87,6 +80,13 @@
       "cig_status": "Ready for Loading",
       "vessel_lat": 37.46233,
       "vessel_lon": 126.61171,
+      "vessel_source": "MyShipTracking/cloudscraper"
+    },
+    {
+      "timestamp": "2026-09-06T16:49:33Z",
+      "cig_status": "Ready for Loading",
+      "vessel_lat": 37.46233,
+      "vessel_lon": 126.61173,
       "vessel_source": "MyShipTracking/cloudscraper"
     }
   ],
