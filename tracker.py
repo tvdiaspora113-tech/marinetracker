@@ -50,6 +50,10 @@ MT_URL = f"https://www.marinetraffic.com/en/ais/details/ships/imo:{IMO}"
 # përkatës dhe kopjo URL-në e re këtu).
 MST_URL = "https://www.myshiptracking.com/vessels/gmt-astro-mmsi-373817000-imo-8606056"
 
+# Koordinatat e Durrësit, Shqipëri (për llogaritjen e distancës direkte).
+DURRES_LAT = 41.3233
+DURRES_LON = 19.4413
+
 STATUS_FILE = Path("status.json")
 LOG_FILE = Path("tracker.log")
 
@@ -123,6 +127,64 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
+
+
+def format_km(km: float) -> str:
+    """Formaton km: me presje mijësh nëse > 1000 km (p.sh. 8,452 km),
+    përndryshe me 1 shifër pas presjes (p.sh. 342.7 km)."""
+    if km > 1000:
+        return f"{km:,.0f} km"
+    return f"{km:.1f} km"
+
+
+# Formate të mundshme të ETA-s ashtu si vijnë nga CIG / VesselFinder /
+# MyShipTracking (tekst i lirë, jo gjithmonë i standardizuar).
+_ETA_FORMATS = (
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%d.%m.%Y %H:%M",
+    "%d.%m.%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M",
+    "%b %d, %Y %H:%M",
+    "%d %b %Y %H:%M",
+    "%Y-%m-%d",
+    "%d.%m.%Y",
+)
+
+
+def parse_eta(eta_raw: str | None) -> datetime | None:
+    """Provon të kthejë tekstin e ETA-s (nga CIG ose VesselFinder) në
+    `datetime`, duke provuar disa formate të njohura. Kthen None nëse
+    s'arrin ta parsojë.
+    """
+    if not eta_raw:
+        return None
+    cleaned = eta_raw.strip()
+    # heq etiketa/zona orare shtesë të zakonshme në fund (UTC, LT, Local...)
+    cleaned = re.sub(r"\s*\((?:UTC|LT)\)\s*$", "", cleaned, flags=re.I).strip()
+    cleaned = re.sub(r"\s*(UTC|LT|Local time)\s*$", "", cleaned, flags=re.I).strip()
+    for fmt in _ETA_FORMATS:
+        try:
+            return datetime.strptime(cleaned, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def format_eta_line(eta_raw: str | None) -> str:
+    """Ndërton rreshtin '📅 ETA: ...' me ditët e mbetura deri në mbërritje,
+    të llogaritura nga data aktuale (UTC). Nëse ETA mungon ose s'mund të
+    parsohet, kthen '📅 ETA: e panjohur'.
+    """
+    eta_dt = parse_eta(eta_raw)
+    if eta_dt is None:
+        return "📅 ETA: e panjohur"
+
+    eta_str = eta_dt.strftime("%d.%m.%Y %H:%M")
+    days_left = (eta_dt.date() - datetime.utcnow().date()).days
+    days_left = max(days_left, 0)
+    return f"📅 ETA: {eta_str} | ⏳ Kanë mbetur edhe {days_left} ditë"
 
 
 def is_quiet_hours(now: datetime | None = None) -> bool:
@@ -507,12 +569,21 @@ def main() -> int:
         if moved:
             maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
             dist_line = f"Lëvizje: {dist_km:.1f} km\n" if dist_km is not None else ""
+
+            durres_km = haversine_km(vf_data["lat"], vf_data["lon"], DURRES_LAT, DURRES_LON)
+            durres_line = f"📏 Distanca direkte nga Durrësi: {format_km(durres_km)}\n"
+
+            eta_raw = cig_data.get("eta") or vf_data.get("eta")
+            eta_line = f"{format_eta_line(eta_raw)}\n"
+
             notifications.append(
                 "🛳 <b>Anija ndryshoi pozicionin</b>\n"
                 f"IMO: {IMO}\n"
                 f"Burimi: {source}\n"
                 f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
                 f"{dist_line}"
+                f"{durres_line}"
+                f"{eta_line}"
                 f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
                 f"Statusi: {vf_data.get('nav_status', '—')}\n"
                 f"Harta: {maps_link}"
