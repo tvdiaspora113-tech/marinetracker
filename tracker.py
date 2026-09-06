@@ -50,9 +50,34 @@ MT_URL = f"https://www.marinetraffic.com/en/ais/details/ships/imo:{IMO}"
 # përkatës dhe kopjo URL-në e re këtu).
 MST_URL = "https://www.myshiptracking.com/vessels/gmt-astro-mmsi-373817000-imo-8606056"
 
-# Koordinatat e Durrësit, Shqipëri (për llogaritjen e distancës direkte).
+# Koordinatat e Durrësit, Shqipëri (destinacioni final i rrugës detare).
 DURRES_LAT = 41.3233
 DURRES_LON = 19.4413
+
+# Rruga detare tipike Incheon -> Durrës, si listë pikash kyçe (waypoints).
+# Përdoret nga sea_route_distance_km() në vend të Haversine drejt,
+# sepse anija nuk lëviz në vijë të drejtë (kalon ngushtica dhe kanale).
+#
+# Krahasuar me rrugën e propozuar fillimisht (vetëm Incheon -> Singapor ->
+# Colombo -> Port Said -> Durrës), këtu janë shtuar edhe:
+#   - Ngushtica Bab-el-Mandeb (mes Detit Arabik dhe Detit të Kuq) - pa këtë
+#     pikë, harku i madh Colombo -> Port Said do të kalonte mbi Gadishullin
+#     Arabik (tokë), jo mbi det.
+#   - Hyrja jugore e Kanalit të Suezit (qyteti Suez) - shtuar veç Port Said
+#     (dalja veriore), që kanali të trajtohet si dy pika, jo një.
+#   - Ngushtica e Otrantos (mes Italisë dhe Shqipërisë) - pika hyrëse
+#     realiste në Adriatik para Durrësit, në vend të një harku të madh
+#     direkt nga Mesdheu Lindor që mund të kalonte pranë ishujve grekë.
+ROUTE_WAYPOINTS: list[tuple[str, float, float]] = [
+    ("Incheon", 37.4623, 126.6117),
+    ("Ngushtica e Malakës (Singapor)", 1.3521, 103.8198),
+    ("Colombo", 6.9271, 79.8612),
+    ("Ngushtica Bab-el-Mandeb", 12.5, 43.4),
+    ("Kanali i Suezit (hyrja jugore)", 29.9668, 32.5498),
+    ("Kanali i Suezit (dalja - Port Said)", 31.2653, 32.3019),
+    ("Ngushtica e Otrantos", 40.0, 18.8),
+    ("Durrës", DURRES_LAT, DURRES_LON),
+]
 
 STATUS_FILE = Path("status.json")
 LOG_FILE = Path("tracker.log")
@@ -127,6 +152,126 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
+
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def _initial_bearing_rad(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Kursi fillestar (radianë) nga (lat1,lon1) drejt (lat2,lon2), përgjatë
+    harkut të madh (great circle)."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dlambda = math.radians(lon2 - lon1)
+    y = math.sin(dlambda) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
+    return math.atan2(y, x)
+
+
+def _destination_point(lat1: float, lon1: float, bearing_rad: float, distance_km: float) -> tuple[float, float]:
+    """Pika (lat,lon) e arritur duke lëvizur `distance_km` nga (lat1,lon1)
+    përgjatë kursit `bearing_rad`, mbi harkun e madh."""
+    r = 6371.0088
+    phi1 = math.radians(lat1)
+    lam1 = math.radians(lon1)
+    delta = distance_km / r
+    phi2 = math.asin(
+        math.sin(phi1) * math.cos(delta) + math.cos(phi1) * math.sin(delta) * math.cos(bearing_rad)
+    )
+    lam2 = lam1 + math.atan2(
+        math.sin(bearing_rad) * math.sin(delta) * math.cos(phi1),
+        math.cos(delta) - math.sin(phi1) * math.sin(phi2),
+    )
+    return math.degrees(phi2), math.degrees(lam2)
+
+
+def _cross_along_track_km(lat1: float, lon1: float, lat2: float, lon2: float,
+                           lat3: float, lon3: float) -> tuple[float, float]:
+    """Distanca pingul (cross-track) dhe përgjatë (along-track), në km, të
+    pikës (lat3,lon3) në lidhje me harkun e madh nga (lat1,lon1) te
+    (lat2,lon2). Formula standarde e navigacionit sferik."""
+    r = 6371.0088
+    d13 = haversine_km(lat1, lon1, lat3, lon3) / r
+    theta13 = _initial_bearing_rad(lat1, lon1, lat3, lon3)
+    theta12 = _initial_bearing_rad(lat1, lon1, lat2, lon2)
+    sin_dxt = _clamp(math.sin(d13) * math.sin(theta13 - theta12), -1.0, 1.0)
+    dxt = math.asin(sin_dxt) * r
+    cos_dxt_r = math.cos(dxt / r)
+    if abs(cos_dxt_r) < 1e-12:
+        dat = d13 * r
+    else:
+        cos_dat = _clamp(math.cos(d13) / cos_dxt_r, -1.0, 1.0)
+        dat = math.acos(cos_dat) * r
+    return dxt, dat
+
+
+def _route_segment_lengths() -> list[float]:
+    lengths = []
+    for i in range(len(ROUTE_WAYPOINTS) - 1):
+        _, lat1, lon1 = ROUTE_WAYPOINTS[i]
+        _, lat2, lon2 = ROUTE_WAYPOINTS[i + 1]
+        lengths.append(haversine_km(lat1, lon1, lat2, lon2))
+    return lengths
+
+
+_ROUTE_SEGMENT_LENGTHS = _route_segment_lengths()
+_ROUTE_TOTAL_KM = sum(_ROUTE_SEGMENT_LENGTHS)
+
+# Distanca reale detare Incheon -> Durrës (nga AIS/ portale detare, siç e
+# ke dhënë ti: ~16,486 km / 8,902 milje detare). Shuma e segmenteve me
+# Haversine (_ROUTE_TOTAL_KM) del pak më e shkurtër, sepse harku i madh
+# mes çdo dy waypoint-esh është gjithmonë pak më i shkurtër se korsia
+# reale e lundrimit (të cilat lakohen, ndjekin skema ndarëse trafiku,
+# etj.). Ky faktor e "kalibron" rrugën tonë me pikë-referencë ndaj
+# distancës reale, që rezultatet të mos jenë sistematikisht nën vlerën e
+# vërtetë - pa prekur formën e rrugës (waypoints mbeten ashtu siç janë).
+KNOWN_REAL_SEA_KM = 16486.0
+_ROUTE_CALIBRATION = KNOWN_REAL_SEA_KM / _ROUTE_TOTAL_KM if _ROUTE_TOTAL_KM else 1.0
+
+
+def sea_route_distance_km(lat: float, lon: float) -> tuple[float, float]:
+    """Llogarit distancën DETARE (jo në vijë të drejtë) të anijes përgjatë
+    rrugës së përcaktuar në ROUTE_WAYPOINTS.
+
+    Metoda: anija "shkëputet" (snap) te segmenti i rrugës më të afërt me
+    pozicionin e saj aktual (duke përdorur cross-track/along-track mbi
+    harkun e madh për çdo segment), pastaj distanca e përshkuar llogaritet
+    si shuma e segmenteve të plota përpara + pjesa e përshkuar e segmentit
+    aktual. Distanca e mbetur është gjithsej rruga minus e përshkuara.
+
+    Kthen (distanca_e_përshkuar_km, distanca_e_mbetur_km deri në Durrës).
+    Nëse llogaritja dështon për ndonjë arsye (rast ekstrem numerik), bie
+    mbrapa te një përafrim i thjeshtë me Haversine drejt Durrësit.
+    """
+    best_dist = None
+    best_index = None
+    best_along = None
+
+    for i in range(len(ROUTE_WAYPOINTS) - 1):
+        _, lat1, lon1 = ROUTE_WAYPOINTS[i]
+        _, lat2, lon2 = ROUTE_WAYPOINTS[i + 1]
+        seg_len = _ROUTE_SEGMENT_LENGTHS[i]
+        try:
+            _, dat = _cross_along_track_km(lat1, lon1, lat2, lon2, lat, lon)
+        except (ValueError, ZeroDivisionError):
+            continue
+        dat_clamped = _clamp(dat, 0.0, seg_len)
+        theta12 = _initial_bearing_rad(lat1, lon1, lat2, lon2)
+        clat, clon = _destination_point(lat1, lon1, theta12, dat_clamped)
+        dist_to_point = haversine_km(lat, lon, clat, clon)
+        if best_dist is None or dist_to_point < best_dist:
+            best_dist = dist_to_point
+            best_index = i
+            best_along = dat_clamped
+
+    if best_index is None:
+        direct = haversine_km(lat, lon, DURRES_LAT, DURRES_LON) * _ROUTE_CALIBRATION
+        return max(0.0, KNOWN_REAL_SEA_KM - direct), direct
+
+    traveled = sum(_ROUTE_SEGMENT_LENGTHS[:best_index]) + best_along
+    traveled = _clamp(traveled, 0.0, _ROUTE_TOTAL_KM) * _ROUTE_CALIBRATION
+    remaining = max(0.0, KNOWN_REAL_SEA_KM - traveled)
+    return traveled, remaining
 
 
 def format_km(km: float) -> str:
@@ -570,8 +715,8 @@ def main() -> int:
             maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
             dist_line = f"Lëvizje: {dist_km:.1f} km\n" if dist_km is not None else ""
 
-            durres_km = haversine_km(vf_data["lat"], vf_data["lon"], DURRES_LAT, DURRES_LON)
-            durres_line = f"📏 Distanca direkte nga Durrësi: {format_km(durres_km)}\n"
+            _, durres_remaining_km = sea_route_distance_km(vf_data["lat"], vf_data["lon"])
+            durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
 
             eta_raw = cig_data.get("eta") or vf_data.get("eta")
             eta_line = f"{format_eta_line(eta_raw)}\n"
