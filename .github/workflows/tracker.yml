@@ -23,19 +23,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Set up Chrome (for Selenium / MarineTraffic)
-        uses: browser-actions/setup-chrome@v1
-        # Selenium 4.6+ përdor "Selenium Manager", i cili shkarkon vetë
-        # chromedriver-in e përputhshëm - nuk nevojitet hap i veçantë për
-        # chromedriver, mjafton Chrome të jetë i instaluar në runner.
-
       - name: Run tracker
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TRACKER_TZ: "Europe/Tirane"
           MOVE_THRESHOLD_KM: "5"
-          ENABLE_SELENIUM: "true"
         run: python tracker.py
 
       - name: Upload log si artifact
