@@ -93,10 +93,13 @@ FAILURE_ALERT_THRESHOLD = 2
 RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 30
 
-# Selenium është OPSIONAL dhe FIKUR si parazgjedhje (tracker.yml e vendos
-# ENABLE_SELENIUM=false). Mund të aktivizohet vendosur ENABLE_SELENIUM=true
-# nëse VesselFinder/MarineTraffic nuk japin koordinata vetëm me cloudscraper.
-ENABLE_SELENIUM = os.environ.get("ENABLE_SELENIUM", "false").lower() == "true"
+# Selenium tani është pjesë e RRUGËS KRYESORE (MarineTraffic/Selenium është
+# burimi parësor i pozicionit, sepse MarineTraffic përditësohet çdo 2-3 min
+# ndërsa MyShipTracking vetëm çdo ~2 orë). Kërkon Chrome + selenium të
+# instaluara (shiko workflow-n YAML). Mund të çaktivizohet plotësisht duke
+# vendosur ENABLE_SELENIUM=false (atëherë përdoren vetëm burimet me
+# cloudscraper, më pak të freskëta/të sigurta për MarineTraffic).
+ENABLE_SELENIUM = os.environ.get("ENABLE_SELENIUM", "true").lower() == "true"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -529,11 +532,13 @@ def fetch_vesselfinder_cloudscraper() -> dict:
 # --------------------------------------------------------- MARINETRAFFIC ---
 
 def parse_marinetraffic(html: str) -> dict:
-    """MarineTraffic e ndërton pjesën më të madhe të faqes me JavaScript, por
-    shpesh koordinatat/destinacioni gjenden edhe si JSON i ngulitur në HTML
-    (p.sh. brenda <script> ose meta tags). Kjo funksion provon disa modele
-    të njohura; nëse struktura e faqes ndryshon, rregulloje shprehjen
-    rregullare më poshtë (kontrollo view-source: e faqes për referencë).
+    """MarineTraffic e ndërton pjesën më të madhe të faqes me JavaScript.
+    Me cloudscraper (HTML statik) zakonisht nxirren vetëm koordinatat (nga
+    JSON i ngulitur). Me Selenium (HTML plotësisht i renderizuar pas
+    ekzekutimit të JS), provohet të nxirren edhe destinacioni, ETA dhe
+    statusi lundrues nga teksti i faqes. Nëse struktura e faqes ndryshon,
+    rregulloji shprehjet rregullare më poshtë (kontrollo view-source: e
+    faqes për referencë).
     """
     data = {}
     soup = BeautifulSoup(html, "html.parser")
@@ -548,6 +553,32 @@ def parse_marinetraffic(html: str) -> dict:
     dest_meta = soup.find("meta", attrs={"name": "description"})
     if dest_meta and dest_meta.get("content"):
         data["destination_hint"] = dest_meta["content"][:200]
+
+    # Fushat më poshtë (destination/eta/nav_status) gjenden zakonisht vetëm
+    # kur faqja është renderizuar plotësisht (Selenium), sepse MarineTraffic
+    # i ndërton me JavaScript dhe cloudscraper (HTML statik) shpesh s'i sheh.
+    text = soup.get_text(" ", strip=True)
+
+    dest_m = re.search(
+        r"\bDestination\b\s*:?\s*([A-Z][A-Za-z0-9 .\-'>]+?)(?:\s{2,}|\s*(?:ETA|Current|Reported|Speed)\b|$)",
+        text,
+    )
+    if dest_m:
+        data["destination"] = dest_m.group(1).strip()
+
+    eta_m = re.search(r"\bETA\b\s*:?\s*([A-Za-z]{3}\s+\d{1,2},?\s+\d{2}:\d{2}|\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})", text)
+    if eta_m:
+        data["eta"] = eta_m.group(1).strip()
+
+    status_m = re.search(
+        r"\b(Under way using engine|Under way sailing|Moored|At anchor|"
+        r"Not under command|Restricted manoeuvrability|Constrained by draught|"
+        r"Aground|Engaged in fishing)\b",
+        text,
+        re.I,
+    )
+    if status_m:
+        data["nav_status"] = status_m.group(1).strip()
 
     return data
 
@@ -608,8 +639,39 @@ def fetch_myshiptracking_cloudscraper() -> dict:
 
 
 # --------------------------------------------------------- SELENIUM ---
-# Fallback opsional, fikur si parazgjedhje. Kërkon Chrome + chromedriver
-# (shto hapa shtesë në workflow-n YAML nëse e aktivizon, shih udhëzimet).
+# MarineTraffic/Selenium është burimi KRYESOR (MarineTraffic përditësohet
+# çdo 2-3 min, ndërsa MyShipTracking përditësohet çdo ~2 orë). VesselFinder/
+# Selenium mbetet si fallback shtesë. Selenium 4.6+ menaxhon vetë
+# chromedriver-in (Selenium Manager) - mjafton të ketë Chrome/Chromium të
+# instaluar në runner (shto hap në workflow-n YAML, shih udhëzimet).
+
+def fetch_marinetraffic_selenium() -> dict:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options
+
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument(f"user-agent={HEADERS['User-Agent']}")
+
+    driver = webdriver.Chrome(options=options)
+    try:
+        driver.set_page_load_timeout(30)
+        driver.get(MT_URL)
+        # MarineTraffic ka Cloudflare challenge + shumë JavaScript; i duhet
+        # më shumë kohë se VesselFinder që faqja të renderizohet plotësisht.
+        time.sleep(8)
+        html = driver.page_source
+    finally:
+        driver.quit()
+
+    data = parse_marinetraffic(html)
+    if data.get("lat") is None:
+        raise RuntimeError("MarineTraffic (selenium): s'u gjetën koordinata")
+    return data
+
 
 def fetch_vesselfinder_selenium() -> dict:
     from selenium import webdriver
@@ -640,18 +702,23 @@ def fetch_vesselfinder_selenium() -> dict:
 # ------------------------------------------------------- VESSEL PIPELINE ---
 
 def get_vessel_position() -> tuple[dict, str]:
-    """Provon me radhë: cloudscraper -> VesselFinder, cloudscraper ->
-    MarineTraffic, cloudscraper -> MyShipTracking, dhe (nëse aktivizuar)
-    Selenium -> VesselFinder.
+    """Provon me radhë, nga më i freskëti te më pak i freskëti:
+      1. MarineTraffic / Selenium    (KRYESOR - përditësohet çdo 2-3 min)
+      2. MarineTraffic / cloudscraper (fallback pa shfletues të plotë)
+      3. VesselFinder / cloudscraper
+      4. VesselFinder / Selenium
+      5. MyShipTracking / cloudscraper (fallback i fundit, ~2 orë freskim)
+
     Kthen (të dhëna, emri_burimit) ose ({}, "asnjë") nëse dështojnë të gjitha.
     """
-    attempts = [
-        ("VesselFinder/cloudscraper", fetch_vesselfinder_cloudscraper),
-        ("MarineTraffic/cloudscraper", fetch_marinetraffic_cloudscraper),
-        ("MyShipTracking/cloudscraper", fetch_myshiptracking_cloudscraper),
-    ]
+    attempts = []
+    if ENABLE_SELENIUM:
+        attempts.append(("MarineTraffic/selenium", fetch_marinetraffic_selenium))
+    attempts.append(("MarineTraffic/cloudscraper", fetch_marinetraffic_cloudscraper))
+    attempts.append(("VesselFinder/cloudscraper", fetch_vesselfinder_cloudscraper))
     if ENABLE_SELENIUM:
         attempts.append(("VesselFinder/selenium", fetch_vesselfinder_selenium))
+    attempts.append(("MyShipTracking/cloudscraper", fetch_myshiptracking_cloudscraper))
 
     for name, fn in attempts:
         try:
