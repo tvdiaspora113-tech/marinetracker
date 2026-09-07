@@ -8,9 +8,9 @@ Selenium -> VesselFinder (opsionale, fikur si parazgjedhje).
 Ekzekutohet çdo 2 orë nga GitHub Actions. Dërgon njoftime në Telegram kur:
   - statusi i dërgesës në CIG ndryshon
   - anija lëviz mbi një prag (km, llogaritur me Haversine)
-  - sistemi dështon 2+ herë rresht (njoftim urgjence, injoron heshtjen e natës)
+  - sistemi dështon 2+ herë rresht (njoftim urgjence)
 
-Heshtje njoftimesh normale: 22:00 - 06:00 (orë lokale, config TIMEZONE).
+Orët e heshtjes janë ÇAKTIVIZUAR: njoftimet dërgohen 24/7, pa kufizim orari.
 """
 
 from __future__ import annotations
@@ -333,14 +333,10 @@ def format_eta_line(eta_raw: str | None) -> str:
 
 
 def is_quiet_hours(now: datetime | None = None) -> bool:
-    """True nëse ora aktuale lokale bie brenda 22:00-06:00."""
-    tz = ZoneInfo(TIMEZONE)
-    now = (now or datetime.now(tz)).astimezone(tz)
-    t = now.time()
-    if QUIET_START <= QUIET_END:
-        return QUIET_START <= t < QUIET_END
-    # intervali kalon mesnatën (rasti ynë: 22:00 -> 06:00)
-    return t >= QUIET_START or t < QUIET_END
+    """Orët e heshtjes janë ÇAKTIVIZUAR. Njoftimet dërgohen 24/7, pa
+    asnjë kufizim orari. Funksioni mbahet (kthen gjithmonë False) vetëm
+    për kompatibilitet me pjesën tjetër të kodit që e thërret."""
+    return False
 
 
 def load_status() -> dict:
@@ -706,14 +702,22 @@ def main() -> int:
         vessel_ok = True
         old_lat = prev_vessel.get("lat")
         old_lon = prev_vessel.get("lon")
-        moved = True
+        is_first_position = old_lat is None or old_lon is None
         dist_km = None
-        if old_lat is not None and old_lon is not None:
+        if is_first_position:
+            # Herën e parë që kemi koordinata të anijes (s'ka koordinata të
+            # vjetra për krahasim) - njoftimi dërgohet GJITHMONË.
+            moved = True
+            log.info("Pozicioni i parë i regjistruar për anijen - dërgoj njoftim pa krahasim distance")
+        else:
             dist_km = haversine_km(old_lat, old_lon, vf_data["lat"], vf_data["lon"])
             moved = dist_km > MOVE_THRESHOLD_KM
         if moved:
             maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
-            dist_line = f"Lëvizje: {dist_km:.1f} km\n" if dist_km is not None else ""
+            if is_first_position:
+                dist_line = "Pozicioni i parë i regjistruar\n"
+            else:
+                dist_line = f"Lëvizje: {dist_km:.1f} km\n"
 
             _, durres_remaining_km = sea_route_distance_km(vf_data["lat"], vf_data["lon"])
             durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
@@ -721,8 +725,13 @@ def main() -> int:
             eta_raw = cig_data.get("eta") or vf_data.get("eta")
             eta_line = f"{format_eta_line(eta_raw)}\n"
 
+            title = (
+                "🛳 <b>Pozicioni i parë i anijes u regjistrua</b>\n"
+                if is_first_position
+                else "🛳 <b>Anija ndryshoi pozicionin</b>\n"
+            )
             notifications.append(
-                "🛳 <b>Anija ndryshoi pozicionin</b>\n"
+                title +
                 f"IMO: {IMO}\n"
                 f"Burimi: {source}\n"
                 f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
