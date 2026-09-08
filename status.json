@@ -3,12 +3,12 @@
     "shipper": "MANGOCAR",
     "model": "GLA 220D",
     "destination": "DURRES, ALBANIA",
-    "current_status": "Ready for Loading",
+    "current_status": "Loaded on Board",
     "vessel_name": "MV GMT ASTRO V.2609",
-    "etd": "2026-09-02",
+    "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 35.216,
-    "lon": 125.0563
+    "lat": 34.6424,
+    "lon": 124.8543
   },
   "vessel": {
     "lat": 37.41422,
@@ -50,6 +50,13 @@
     {
       "timestamp": "2026-09-08T03:54:44Z",
       "cig_status": "Ready for Loading",
+      "vessel_lat": 37.41422,
+      "vessel_lon": 126.56743,
+      "vessel_source": "MyShipTracking/cloudscraper"
+    },
+    {
+      "timestamp": "2026-09-08T08:45:30Z",
+      "cig_status": "Loaded on Board",
       "vessel_lat": 37.41422,
       "vessel_lon": 126.56743,
       "vessel_source": "MyShipTracking/cloudscraper"
