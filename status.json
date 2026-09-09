@@ -20,13 +20,6 @@
   },
   "history": [
     {
-      "timestamp": "2026-09-07T22:40:05Z",
-      "cig_status": "Ready for Loading",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    {
       "timestamp": "2026-09-08T03:54:44Z",
       "cig_status": "Ready for Loading",
       "vessel_lat": 37.41422,
@@ -84,6 +77,13 @@
     },
     {
       "timestamp": "2026-09-09T07:06:28Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 28.9248,
+      "vessel_lon": 123.9076,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    },
+    {
+      "timestamp": "2026-09-09T07:08:51Z",
       "cig_status": "Loaded on Board",
       "vessel_lat": 28.9248,
       "vessel_lon": 123.9076,
