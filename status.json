@@ -7,12 +7,12 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 28.7972,
-    "lon": 123.8446
+    "lat": 28.7785,
+    "lon": 123.8363
   },
   "vessel": {
-    "lat": 28.7972,
-    "lon": 123.8446,
+    "lat": 28.7785,
+    "lon": 123.8363,
     "destination": "SINGAPORE",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
@@ -66,6 +66,13 @@
       "cig_status": "Loaded on Board",
       "vessel_lat": 28.7972,
       "vessel_lon": 123.8446,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    },
+    {
+      "timestamp": "2026-09-09T07:49:06Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 28.7785,
+      "vessel_lon": 123.8363,
       "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
     }
   ],
