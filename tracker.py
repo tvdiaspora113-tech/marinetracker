@@ -28,7 +28,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -170,6 +170,20 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
+
+
+def ship_local_time_str(lon: float) -> str:
+    """Kthen orën aktuale lokale në zonën kohore ku ndodhet anija, e
+    llogaritur nga gjatësia gjeografike (longitude) sipas zonave kohore
+    detare (nautical time zones: UTC ± round(lon/15), kufizuar te UTC-12..
+    UTC+14). Kjo është e nevojshme sepse anija lundron nëpër shumë zona
+    kohore - ora fikse e TRACKER_TZ (p.sh. Europa/Tirana) nuk pasqyron
+    orën aktuale në pozicionin e anijes."""
+    offset_hours = int(round(_clamp(lon, -180.0, 180.0) / 15.0))
+    offset_hours = max(-12, min(14, offset_hours))
+    local_dt = datetime.now(ZoneInfo("UTC")) + timedelta(hours=offset_hours)
+    sign = "+" if offset_hours >= 0 else "-"
+    return f"{local_dt.strftime('%H:%M')} (UTC{sign}{abs(offset_hours)})"
 
 
 def _initial_bearing_rad(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -686,8 +700,7 @@ def build_manual_status_message(
     progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
     durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
 
-    now_local = datetime.now(ZoneInfo(TIMEZONE))
-    time_line = f"🕐 Ora: {now_local.strftime('%H:%M')}\n"
+    time_line = f"🕐 Ora (vendore anijes): {ship_local_time_str(vf_data['lon'])}\n"
 
     eta_line = f"{format_eta_line(eta_raw)}\n"
 
@@ -811,8 +824,7 @@ def main() -> int:
             progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
             durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
 
-            now_local = datetime.now(ZoneInfo(TIMEZONE))
-            time_line = f"🕐 Ora: {now_local.strftime('%H:%M')}\n"
+            time_line = f"🕐 Ora (vendore anijes): {ship_local_time_str(vf_data['lon'])}\n"
 
             eta_raw = cig_data.get("eta") or vf_data.get("eta")
             eta_line = f"{format_eta_line(eta_raw)}\n"
