@@ -7,12 +7,12 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 28.9248,
-    "lon": 123.9076
+    "lat": 28.9067,
+    "lon": 123.898
   },
   "vessel": {
-    "lat": 28.9248,
-    "lon": 123.9076,
+    "lat": 28.9067,
+    "lon": 123.898,
     "destination": "SINGAPORE",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
@@ -20,45 +20,16 @@
   },
   "history": [
     {
-      "timestamp": "2026-09-08T03:54:44Z",
-      "cig_status": "Ready for Loading",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    {
-      "timestamp": "2026-09-08T08:45:30Z",
+      "timestamp": "2026-09-09T07:10:31Z",
       "cig_status": "Loaded on Board",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    {
-      "timestamp": "2026-09-08T14:16:44Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    {
-      "timestamp": "2026-09-08T19:20:30Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    {
-      "timestamp": "2026-09-08T22:29:01Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    {
-      "timestamp": "2026-09-09T03:59:56Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 37.41422,
-      "vessel_lon": 126.56743,
-      "vessel_source": "MyShipTracking/cloudscraper"
-    },
-    
+      "vessel_lat": 28.9067,
+      "vessel_lon": 123.898,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    }
+  ],
+  "consecutive_failures": 0,
+  "waypoints_passed": [],
+  "last_movement_at": "2026-09-09T07:10:31Z",
+  "stall_alert_sent": false,
+  "approach_alert_sent": false
+}
