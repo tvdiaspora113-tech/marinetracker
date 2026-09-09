@@ -109,6 +109,12 @@ RETRY_DELAY_SECONDS = 30
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
+# E vërtetë kur workflow-u u nis manualisht nga GitHub Actions (butoni "Run
+# workflow"), jo nga cron-i i planifikuar. Përdoret për të dërguar gjithmonë
+# një njoftim testues, edhe nëse s'ka pasur asnjë ndryshim statusi/pozicioni.
+GITHUB_EVENT_NAME = os.environ.get("GITHUB_EVENT_NAME", "")
+IS_MANUAL_RUN = GITHUB_EVENT_NAME == "workflow_dispatch"
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -657,6 +663,44 @@ def build_vessel_data(cig_data: dict) -> tuple[dict, str]:
     return {}, "asnjë"
 
 
+def build_manual_status_message(cig_data: dict, vf_data: dict, source: str) -> str:
+    """Ndërton një mesazh përmbledhës me statusin AKTUAL (VIN, koordinata,
+    distanca deri në Durrës, etj.), përdorur vetëm kur workflow-u niset
+    manualisht (workflow_dispatch) dhe s'ka pasur asnjë njoftim tjetër për
+    t'u dërguar - kështu përdoruesi merr gjithmonë një konfirmim kur e
+    ekzekuton testin me dorë, edhe nëse s'ka ndryshuar asgjë."""
+    parts = ["🔧 <b>Test manual - statusi aktual</b>\n"]
+
+    if cig_data:
+        parts.append(
+            f"VIN: {VIN}\n"
+            f"Status: {cig_data.get('current_status', '—')}\n"
+            f"Anija: {cig_data.get('vessel_name', '—')}\n"
+            f"ETD: {cig_data.get('etd', '—')} | ETA: {cig_data.get('eta', '—')}\n"
+        )
+
+    if vf_data.get("lat") is not None and vf_data.get("lon") is not None:
+        traveled_km, durres_remaining_km = sea_route_distance_km(vf_data["lat"], vf_data["lon"])
+        maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
+        now_local = datetime.now(ZoneInfo(TIMEZONE))
+        eta_raw = cig_data.get("eta") or vf_data.get("eta")
+        parts.append(
+            f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
+            f"Përshkuar: {format_km(traveled_km)}\n"
+            f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
+            f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
+            f"🕐 Ora: {now_local.strftime('%H:%M')}\n"
+            f"{format_eta_line(eta_raw)}\n"
+            f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
+            f"Burimi: {source}\n"
+            f"Harta: {maps_link}"
+        )
+    else:
+        parts.append("Nuk ka koordinata të disponueshme për anijen aktualisht.")
+
+    return "".join(parts)
+
+
 # ------------------------------------------------------------------ MAIN ---
 
 def main() -> int:
@@ -813,6 +857,11 @@ def main() -> int:
 
     for msg in notifications:
         send_telegram(msg)
+
+    # --- Ekzekutim manual: dërgo GJITHMONË një njoftim, edhe pa ndryshim ---
+    if IS_MANUAL_RUN and not notifications:
+        send_telegram(build_manual_status_message(cig_data, vf_data, source), force=True)
+        log.info("Ekzekutim manual (workflow_dispatch) - u dërgua njoftim testues pavarësisht mungesës së ndryshimeve")
 
     save_status(status)
 
