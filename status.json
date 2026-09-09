@@ -61,38 +61,4 @@
       "vessel_lon": 126.56743,
       "vessel_source": "MyShipTracking/cloudscraper"
     },
-    {
-      "timestamp": "2026-09-09T06:26:37Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 29.0765,
-      "vessel_lon": 123.9681,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
-    {
-      "timestamp": "2026-09-09T06:50:24Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 28.9797,
-      "vessel_lon": 123.9362,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
-    {
-      "timestamp": "2026-09-09T07:06:28Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 28.9248,
-      "vessel_lon": 123.9076,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
-    {
-      "timestamp": "2026-09-09T07:08:51Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 28.9248,
-      "vessel_lon": 123.9076,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    }
-  ],
-  "consecutive_failures": 0,
-  "waypoints_passed": [],
-  "last_movement_at": "2026-09-09T07:06:28Z",
-  "stall_alert_sent": false,
-  "approach_alert_sent": false
-}
+    
