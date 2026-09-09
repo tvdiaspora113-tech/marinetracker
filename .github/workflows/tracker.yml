@@ -29,6 +29,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TRACKER_TZ: "Europe/Tirane"
           MOVE_THRESHOLD_KM: "5"
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: python tracker.py
 
       - name: Upload log si artifact
