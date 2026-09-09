@@ -273,6 +273,39 @@ def sea_route_distance_km(lat: float, lon: float) -> tuple[float, float]:
     return traveled, remaining
 
 
+# Pikat kontrolluese (checkpoints) për përmbledhjen e ngjarjeve "waypoints të
+# kaluar" në njoftime. Disa pika (Singapor, Colombo, Suez) kanë nga dy
+# "ngjarje" (mbërritje/nisje ose hyrje/dalje) me të njëjtat koordinata, sepse
+# vetëm nga pozicioni GPS s'mund ta dallojmë saktësisht mbërritjen nga nisja -
+# të dyja shfaqen si "të kaluara" njëherësh kur anija arrin në atë pikë.
+EVENT_WAYPOINTS: list[tuple[str, float, float]] = [
+    ("Kaloi Ngushticën e Malakës", 1.3521, 103.8198),
+    ("Mbërritje në Singapor", 1.2897, 103.8501),
+    ("Nisje nga Singapor", 1.2897, 103.8501),
+    ("Mbërritje në Colombo", 6.9271, 79.8612),
+    ("Nisje nga Colombo", 6.9271, 79.8612),
+    ("Kaloi Bab-el-Mandeb", 12.5, 43.4),
+    ("Hyrje në Kanalin e Suezit", 29.9668, 32.5498),
+    ("Dalje nga Kanali i Suezit", 31.2653, 32.3019),
+    ("Kaloi Ngushticën e Otrantos", 40.0, 18.8),
+    ("Mbërriti në Durrës", DURRES_LAT, DURRES_LON),
+]
+
+# Përparimi (km të përshkuara nga Incheon, sipas ROUTE_WAYPOINTS) në të cilin
+# ndodhet çdo pikë kontrolluese më sipër - llogaritur një herë, në nisje, duke
+# ripërdorur sea_route_distance_km().
+_EVENT_WAYPOINT_PROGRESS: list[tuple[str, float]] = [
+    (name, sea_route_distance_km(lat, lon)[0]) for name, lat, lon in EVENT_WAYPOINTS
+]
+
+
+def get_passed_waypoint_names(traveled_km: float) -> list[str]:
+    """Kthen emrat e pikave kontrolluese që anija i ka kaluar tashmë, bazuar
+    në km e përshkuara (traveled_km, siç e kthen sea_route_distance_km), në
+    rendin e EVENT_WAYPOINTS."""
+    return [name for name, progress_km in _EVENT_WAYPOINT_PROGRESS if traveled_km >= progress_km]
+
+
 def format_km(km: float) -> str:
     """Formaton km: me presje mijësh nëse > 1000 km (p.sh. 8,452 km),
     përndryshe me 1 shifër pas presjes (p.sh. 342.7 km)."""
@@ -346,10 +379,11 @@ def load_status() -> dict:
             data.setdefault("vessel", {})
             data.setdefault("history", [])
             data.setdefault("consecutive_failures", 0)
+            data.setdefault("waypoints_passed", [])
             return data
         except json.JSONDecodeError:
             log.warning("status.json i pavlefshëm, rifillo nga zero")
-    return {"cig": {}, "vessel": {}, "history": [], "consecutive_failures": 0}
+    return {"cig": {}, "vessel": {}, "history": [], "consecutive_failures": 0, "waypoints_passed": []}
 
 
 def save_status(data: dict) -> None:
@@ -641,6 +675,14 @@ def main() -> int:
         else:
             dist_km = haversine_km(old_lat, old_lon, vf_data["lat"], vf_data["lon"])
             moved = dist_km > MOVE_THRESHOLD_KM
+
+        traveled_km, durres_remaining_km = sea_route_distance_km(vf_data["lat"], vf_data["lon"])
+
+        prev_waypoints_passed = status.get("waypoints_passed", [])
+        all_passed_now = get_passed_waypoint_names(traveled_km)
+        newly_passed = [w for w in all_passed_now if w not in prev_waypoints_passed]
+        status["waypoints_passed"] = all_passed_now
+
         if moved:
             maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
             if is_first_position:
@@ -648,24 +690,34 @@ def main() -> int:
             else:
                 dist_line = f"Lëvizje: {dist_km:.1f} km\n"
 
-            _, durres_remaining_km = sea_route_distance_km(vf_data["lat"], vf_data["lon"])
+            traveled_line = f"Përshkuar: {format_km(traveled_km)}\n"
             durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
+
+            now_local = datetime.now(ZoneInfo(TIMEZONE))
+            time_line = f"🕐 Ora: {now_local.strftime('%H:%M')}\n"
 
             eta_raw = cig_data.get("eta") or vf_data.get("eta")
             eta_line = f"{format_eta_line(eta_raw)}\n"
 
+            events_block = ""
+            if newly_passed:
+                events_lines = "\n".join(f"✅ {w}" for w in newly_passed)
+                events_block = f"🔄 <b>Ngjarje të reja:</b>\n{events_lines}\n\n"
+
             title = (
                 "🛳 <b>Pozicioni i parë i anijes u regjistrua</b>\n"
                 if is_first_position
-                else "🛳 <b>Anija ndryshoi pozicionin</b>\n"
+                else "🚗 <b>Mercedes Benz GLA</b>\n"
             )
             notifications.append(
+                events_block +
                 title +
-                f"IMO: {IMO}\n"
                 f"Burimi: {source}\n"
                 f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
                 f"{dist_line}"
+                f"{traveled_line}"
                 f"{durres_line}"
+                f"{time_line}"
                 f"{eta_line}"
                 f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
                 f"Statusi: {vf_data.get('nav_status', '—')}\n"
