@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """Monitoron statusin e dërgesës (CIG) dhe pozicionin e anijes.
 
-Burimi i vetëm i pozicionit të anijes: MyShipTracking (cloudscraper).
+Burimet e pozicionit të anijes (kombinohen):
+  - Koordinatat (lat/lon): PARA SË GJITHASH nga CIGBooking, sepse janë më
+    të sakta dhe përditësohen më shpejt. Nëse CIG s'ka koordinata, bie
+    mbrapa (fallback) te MyShipTracking për gjithçka.
+  - Destinacioni (porti i ardhshëm, p.sh. SINGAPORE, Colombo): gjithmonë
+    nga MyShipTracking (me CIG si rezervë nëse MST s'e ka).
+  - ETA: nga CIG (për Durrësin) nëse e ka, përndryshe nga MyShipTracking.
+  - Statusi: nga CIG (current_status) nëse e ka, përndryshe nga
+    MyShipTracking (nav_status).
 
 Ekzekutohet çdo 2 orë nga GitHub Actions. Dërgon njoftime në Telegram kur:
   - statusi i dërgesës në CIG ndryshon
@@ -519,21 +527,69 @@ def fetch_myshiptracking_cloudscraper() -> dict:
 
 # ------------------------------------------------------- VESSEL PIPELINE ---
 
-def get_vessel_position() -> tuple[dict, str]:
-    """Burimi i vetëm: MyShipTracking / cloudscraper.
+def get_mst_data() -> dict:
+    """Merr të dhënat nga MyShipTracking (cloudscraper), me retry.
 
-    Kthen (të dhëna, emri_burimit) ose ({}, "asnjë") nëse dështon.
+    Kthen dict me çka arriti të parsojë (lat/lon/destination/eta/nav_status),
+    ose {} nëse burimi dështon plotësisht (pas gjithë përpjekjeve).
     """
-    attempts = [("MyShipTracking/cloudscraper", fetch_myshiptracking_cloudscraper)]
+    try:
+        data = retry_fetch(
+            fetch_myshiptracking_cloudscraper,
+            attempts=RETRY_ATTEMPTS,
+            delay=RETRY_DELAY_SECONDS,
+        )
+        log.info("Të dhënat nga MyShipTracking u morën me sukses")
+        return data
+    except Exception as e:
+        log.warning(f"MyShipTracking dështoi plotësisht: {e}")
+        return {}
 
-    for name, fn in attempts:
-        try:
-            data = retry_fetch(fn, attempts=RETRY_ATTEMPTS, delay=RETRY_DELAY_SECONDS)
-            log.info(f"Pozicioni i anijes u mor me sukses nga {name}")
-            return data, name
-        except Exception as e:
-            log.warning(f"Burimi {name} dështoi plotësisht: {e}")
 
+def build_vessel_data(cig_data: dict) -> tuple[dict, str]:
+    """Kombinon CIG dhe MyShipTracking sipas rregullave:
+
+    - Nëse CIG ka koordinata (lat/lon) -> përdoren ato si burim kryesor
+      i pozicionit (më të sakta, përditësohen më shpejt).
+        - Destinacioni merret nga MyShipTracking (porti i ardhshëm, p.sh.
+          SINGAPORE, Colombo); nëse MST s'e ka, bie mbrapa te destinacioni
+          i CIG.
+        - ETA merret nga CIG (për Durrësin) nëse e ka, përndryshe nga
+          MyShipTracking.
+        - Statusi merret nga CIG (current_status) nëse e ka, përndryshe
+          nga MyShipTracking (nav_status).
+    - Nëse CIG s'ka koordinata -> MyShipTracking bëhet burim rezervë
+      (fallback) për GJITHÇKA (koordinata, destinacion, ETA, status).
+
+    Kthen (të dhëna, emri_burimit) ose ({}, "asnjë") nëse asnjë burim s'ka
+    koordinata.
+    """
+    mst_data = get_mst_data()
+
+    cig_has_coords = cig_data.get("lat") is not None and cig_data.get("lon") is not None
+
+    if cig_has_coords:
+        merged = {
+            "lat": cig_data["lat"],
+            "lon": cig_data["lon"],
+            "destination": mst_data.get("destination") or cig_data.get("destination"),
+            "eta": cig_data.get("eta") or mst_data.get("eta"),
+            "nav_status": cig_data.get("current_status") or mst_data.get("nav_status"),
+        }
+        source = "CIG (koordinata)"
+        if mst_data.get("destination"):
+            source += " + MyShipTracking (destinacion)"
+        log.info(
+            "Koordinatat u morën nga CIG; destinacioni/ETA/statusi u "
+            "plotësuan duke kombinuar CIG dhe MyShipTracking"
+        )
+        return merged, source
+
+    if mst_data.get("lat") is not None and mst_data.get("lon") is not None:
+        log.info("CIG s'ka koordinata - përdor MyShipTracking si rezervë (fallback) për gjithçka")
+        return mst_data, "MyShipTracking (fallback - CIG pa koordinata)"
+
+    log.warning("As CIG dhe as MyShipTracking s'kanë koordinata")
     return {}, "asnjë"
 
 
@@ -569,8 +625,8 @@ def main() -> int:
             )
         status["cig"] = {**prev_cig, **cig_data}
 
-    # --- Vessel (MyShipTracking) ---
-    vf_data, source = get_vessel_position()
+    # --- Vessel (CIG për koordinata + MyShipTracking për destinacion) ---
+    vf_data, source = build_vessel_data(cig_data)
     if vf_data.get("lat") is not None and vf_data.get("lon") is not None:
         vessel_ok = True
         old_lat = prev_vessel.get("lat")
