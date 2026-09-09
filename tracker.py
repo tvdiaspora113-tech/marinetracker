@@ -94,6 +94,15 @@ MOVE_THRESHOLD_KM = float(os.environ.get("MOVE_THRESHOLD_KM", "5"))
 HISTORY_LIMIT = 10
 FAILURE_ALERT_THRESHOLD = 2
 
+# Sa orë pa lëvizje (nën MOVE_THRESHOLD_KM) para se të dërgohet alert "anija
+# ka ndaluar" (p.sh. ndalim doganor, stuhi, ankorim i gjatë).
+STALL_ALERT_HOURS = float(os.environ.get("STALL_ALERT_HOURS", "12"))
+
+# Distanca (km, detare, deri në Durrës) nën të cilën dërgohet njoftimi
+# "po afrohet Durrësit" (një herë të vetme, deri sa distanca të rritet
+# përsëri mbi këtë prag - p.sh. në një udhëtim të ri).
+APPROACH_ALERT_KM = float(os.environ.get("APPROACH_ALERT_KM", "300"))
+
 RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 30
 
@@ -314,6 +323,15 @@ def format_km(km: float) -> str:
     return f"{km:.1f} km"
 
 
+def progress_bar(traveled_km: float, total_km: float, width: int = 10) -> str:
+    """Ndërton një shirit progresi teksti, p.sh. '██████░░░░ 62%',
+    bazuar në km e përshkuara nga gjithsej km e rrugës detare."""
+    pct = _clamp(traveled_km / total_km * 100 if total_km else 0.0, 0.0, 100.0)
+    filled = max(0, min(width, round(pct / 100 * width)))
+    bar = "█" * filled + "░" * (width - filled)
+    return f"{bar} {pct:.0f}%"
+
+
 # Formate të mundshme të ETA-s ashtu si vijnë nga CIG / MyShipTracking
 # (tekst i lirë, jo gjithmonë i standardizuar).
 _ETA_FORMATS = (
@@ -380,10 +398,22 @@ def load_status() -> dict:
             data.setdefault("history", [])
             data.setdefault("consecutive_failures", 0)
             data.setdefault("waypoints_passed", [])
+            data.setdefault("last_movement_at", None)
+            data.setdefault("stall_alert_sent", False)
+            data.setdefault("approach_alert_sent", False)
             return data
         except json.JSONDecodeError:
             log.warning("status.json i pavlefshëm, rifillo nga zero")
-    return {"cig": {}, "vessel": {}, "history": [], "consecutive_failures": 0, "waypoints_passed": []}
+    return {
+        "cig": {},
+        "vessel": {},
+        "history": [],
+        "consecutive_failures": 0,
+        "waypoints_passed": [],
+        "last_movement_at": None,
+        "stall_alert_sent": False,
+        "approach_alert_sent": False,
+    }
 
 
 def save_status(data: dict) -> None:
@@ -683,6 +713,45 @@ def main() -> int:
         newly_passed = [w for w in all_passed_now if w not in prev_waypoints_passed]
         status["waypoints_passed"] = all_passed_now
 
+        # --- Lëvizja / ndalimi i zgjatur (alert nëse anija s'ka lëvizur prej STALL_ALERT_HOURS) ---
+        now_utc = datetime.utcnow()
+        prev_last_movement_at = status.get("last_movement_at")
+        if moved:
+            status["last_movement_at"] = now_utc.isoformat(timespec="seconds") + "Z"
+            status["stall_alert_sent"] = False
+        else:
+            stalled_hours = None
+            if prev_last_movement_at:
+                try:
+                    last_move_dt = datetime.fromisoformat(prev_last_movement_at.rstrip("Z"))
+                    stalled_hours = (now_utc - last_move_dt).total_seconds() / 3600
+                except ValueError:
+                    stalled_hours = None
+            if (
+                stalled_hours is not None
+                and stalled_hours >= STALL_ALERT_HOURS
+                and not status.get("stall_alert_sent")
+            ):
+                notifications.append(
+                    "⚠️ <b>Anija s'ka lëvizur prej kohësh</b>\n"
+                    f"S'ka lëvizje të regjistruar prej ~{stalled_hours:.0f} orësh.\n"
+                    f"Koordinata e fundit: {vf_data['lat']}, {vf_data['lon']}\n"
+                    f"Statusi: {vf_data.get('nav_status', '—')}"
+                )
+                status["stall_alert_sent"] = True
+
+        # --- Njoftim "po afrohet Durrësit" (një herë të vetme, kur bie nën prag) ---
+        if durres_remaining_km <= APPROACH_ALERT_KM:
+            if not status.get("approach_alert_sent"):
+                notifications.append(
+                    "🏁 <b>Anija po afrohet Durrësit!</b>\n"
+                    f"Mbetet vetëm {format_km(durres_remaining_km)} deri në Durrës.\n"
+                    f"{format_eta_line(cig_data.get('eta') or vf_data.get('eta'))}"
+                )
+                status["approach_alert_sent"] = True
+        else:
+            status["approach_alert_sent"] = False
+
         if moved:
             maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
             if is_first_position:
@@ -691,6 +760,7 @@ def main() -> int:
                 dist_line = f"Lëvizje: {dist_km:.1f} km\n"
 
             traveled_line = f"Përshkuar: {format_km(traveled_km)}\n"
+            progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
             durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
 
             now_local = datetime.now(ZoneInfo(TIMEZONE))
@@ -707,20 +777,19 @@ def main() -> int:
             title = (
                 "🛳 <b>Pozicioni i parë i anijes u regjistrua</b>\n"
                 if is_first_position
-                else "🚗 <b>Mercedes Benz GLA</b>\n"
+                else "<b>Mercedes Benz GLA</b>\n"
             )
             notifications.append(
                 events_block +
                 title +
-                f"Burimi: {source}\n"
                 f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
                 f"{dist_line}"
                 f"{traveled_line}"
+                f"{progress_line}"
                 f"{durres_line}"
                 f"{time_line}"
                 f"{eta_line}"
                 f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
-                f"Statusi: {vf_data.get('nav_status', '—')}\n"
                 f"Harta: {maps_link}"
             )
         status["vessel"] = {**prev_vessel, **vf_data, "source": source}
