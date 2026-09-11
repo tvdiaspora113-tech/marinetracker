@@ -677,6 +677,50 @@ def build_vessel_data(cig_data: dict) -> tuple[dict, str]:
     return {}, "asnjë"
 
 
+def render_status_block(
+    vf_data: dict,
+    dist_km: float | None,
+    is_first_position: bool,
+    traveled_km: float,
+    durres_remaining_km: float,
+    eta_raw,
+    title: str = "Mercedes Benz GLA",
+) -> str:
+    """Ndërton bllokun kryesor të mesazhit, në renditjen:
+
+        <b>{title}</b> - 🕐 Ora: {ora}
+        {shirit progresi} ({km e përshkuara}>{km të mbetura})
+        {lëvizja që nga njoftimi i fundit}
+        {ETA}
+        Destinacioni: ...
+        Harta: ...
+
+    Përdoret si nga njoftimet normale (main()) ashtu edhe nga mesazhi i
+    ekzekutimit manual (build_manual_status_message), që të dyja të dalin
+    me të njëjtin format."""
+    maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
+    if is_first_position:
+        dist_line = "Pozicioni i parë i regjistruar\n"
+    else:
+        dist_line = f"Lëvizje: {dist_km:.1f} km\n"
+
+    time_str = ship_local_time_str(vf_data["lon"])
+    progress_line = (
+        f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)} "
+        f"({format_km(traveled_km)}>{format_km(durres_remaining_km)})\n"
+    )
+    eta_line = f"{format_eta_line(eta_raw)}\n"
+
+    return (
+        f"<b>{title}</b> - 🕐 Ora: {time_str}\n"
+        f"{progress_line}"
+        f"{dist_line}"
+        f"{eta_line}"
+        f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
+        f"Harta: {maps_link}"
+    )
+
+
 def build_manual_status_message(
     vf_data: dict,
     dist_km: float | None,
@@ -690,31 +734,8 @@ def build_manual_status_message(
     (workflow_dispatch) dhe s'ka pasur asnjë njoftim tjetër për t'u dërguar -
     kështu përdoruesi merr gjithmonë një konfirmim kur e ekzekuton testin me
     dorë, edhe nëse s'ka ndryshuar asgjë."""
-    maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
-    if is_first_position:
-        dist_line = "Pozicioni i parë i regjistruar\n"
-    else:
-        dist_line = f"Lëvizje: {dist_km:.1f} km\n"
-
-    traveled_line = f"Përshkuar: {format_km(traveled_km)}\n"
-    progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
-    durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
-
-    time_line = f"🕐 Ora (vendore anijes): {ship_local_time_str(vf_data['lon'])}\n"
-
-    eta_line = f"{format_eta_line(eta_raw)}\n"
-
-    return (
-        "<b>Mercedes Benz GLA</b>\n"
-        f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
-        f"{dist_line}"
-        f"{traveled_line}"
-        f"{progress_line}"
-        f"{durres_line}"
-        f"{time_line}"
-        f"{eta_line}"
-        f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
-        f"Harta: {maps_link}"
+    return render_status_block(
+        vf_data, dist_km, is_first_position, traveled_km, durres_remaining_km, eta_raw
     )
 
 
@@ -814,20 +835,7 @@ def main() -> int:
             status["approach_alert_sent"] = False
 
         if moved:
-            maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
-            if is_first_position:
-                dist_line = "Pozicioni i parë i regjistruar\n"
-            else:
-                dist_line = f"Lëvizje: {dist_km:.1f} km\n"
-
-            traveled_line = f"Përshkuar: {format_km(traveled_km)}\n"
-            progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
-            durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
-
-            time_line = f"🕐 Ora (vendore anijes): {ship_local_time_str(vf_data['lon'])}\n"
-
             eta_raw = cig_data.get("eta") or vf_data.get("eta")
-            eta_line = f"{format_eta_line(eta_raw)}\n"
 
             events_block = ""
             if newly_passed:
@@ -835,22 +843,22 @@ def main() -> int:
                 events_block = f"🔄 <b>Ngjarje të reja:</b>\n{events_lines}\n\n"
 
             title = (
-                "🛳 <b>Pozicioni i parë i anijes u regjistrua</b>\n"
+                "🛳 Pozicioni i parë i anijes u regjistrua"
                 if is_first_position
-                else "<b>Mercedes Benz GLA</b>\n"
+                else "Mercedes Benz GLA"
             )
+
             notifications.append(
-                events_block +
-                title +
-                f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
-                f"{dist_line}"
-                f"{traveled_line}"
-                f"{progress_line}"
-                f"{durres_line}"
-                f"{time_line}"
-                f"{eta_line}"
-                f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
-                f"Harta: {maps_link}"
+                events_block
+                + render_status_block(
+                    vf_data,
+                    dist_km,
+                    is_first_position,
+                    traveled_km,
+                    durres_remaining_km,
+                    eta_raw,
+                    title=title,
+                )
             )
         status["vessel"] = {**prev_vessel, **vf_data, "source": source}
 
