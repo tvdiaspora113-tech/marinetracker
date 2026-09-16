@@ -7,25 +7,18 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 1.4115,
-    "lon": 103.2236
+    "lat": 1.9618,
+    "lon": 102.2447
   },
   "vessel": {
-    "lat": 1.4115,
-    "lon": 103.2236,
+    "lat": 1.9618,
+    "lon": 102.2447,
     "destination": "SUEZ CANAL",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
     "source": "CIG (koordinata) + MyShipTracking (destinacion)"
   },
   "history": [
-    {
-      "timestamp": "2026-09-15T04:15:19Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 3.4222,
-      "vessel_lon": 105.5435,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
     {
       "timestamp": "2026-09-15T09:58:12Z",
       "cig_status": "Loaded on Board",
@@ -88,6 +81,13 @@
       "vessel_lat": 1.4115,
       "vessel_lon": 103.2236,
       "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    },
+    {
+      "timestamp": "2026-09-16T22:46:55Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 1.9618,
+      "vessel_lon": 102.2447,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
     }
   ],
   "consecutive_failures": 0,
@@ -96,7 +96,7 @@
     "Mbërritje në Singapor",
     "Nisje nga Singapor"
   ],
-  "last_movement_at": "2026-09-16T18:01:58Z",
+  "last_movement_at": "2026-09-16T22:46:55Z",
   "stall_alert_sent": false,
   "approach_alert_sent": false
 }
