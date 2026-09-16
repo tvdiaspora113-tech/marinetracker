@@ -8,24 +8,17 @@
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
     "lat": 1.2509,
-    "lon": 103.8774
+    "lon": 103.8776
   },
   "vessel": {
     "lat": 1.2509,
-    "lon": 103.8774,
+    "lon": 103.8776,
     "destination": "DURRES, ALBANIA",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
     "source": "CIG (koordinata)"
   },
   "history": [
-    {
-      "timestamp": "2026-09-14T12:19:06Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 6.2935,
-      "vessel_lon": 108.0275,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
     {
       "timestamp": "2026-09-14T19:07:48Z",
       "cig_status": "Loaded on Board",
@@ -87,6 +80,13 @@
       "cig_status": "Loaded on Board",
       "vessel_lat": 1.2509,
       "vessel_lon": 103.8774,
+      "vessel_source": "CIG (koordinata)"
+    },
+    {
+      "timestamp": "2026-09-16T07:27:22Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 1.2509,
+      "vessel_lon": 103.8776,
       "vessel_source": "CIG (koordinata)"
     }
   ],
