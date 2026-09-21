@@ -7,25 +7,18 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 5.4229,
-    "lon": 80.4714
+    "lat": 5.8314,
+    "lon": 79.2305
   },
   "vessel": {
-    "lat": 5.4229,
-    "lon": 80.4714,
+    "lat": 5.8314,
+    "lon": 79.2305,
     "destination": "SUEZ CANAL",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
     "source": "CIG (koordinata) + MyShipTracking (destinacion)"
   },
   "history": [
-    {
-      "timestamp": "2026-09-19T17:05:46Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 6.048,
-      "vessel_lon": 89.2196,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
     {
       "timestamp": "2026-09-19T20:19:59Z",
       "cig_status": "Loaded on Board",
@@ -88,15 +81,24 @@
       "vessel_lat": 5.4229,
       "vessel_lon": 80.4714,
       "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    },
+    {
+      "timestamp": "2026-09-21T19:10:19Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 5.8314,
+      "vessel_lon": 79.2305,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
     }
   ],
   "consecutive_failures": 0,
   "waypoints_passed": [
     "Kaloi Ngushticën e Malakës",
     "Mbërritje në Singapor",
-    "Nisje nga Singapor"
+    "Nisje nga Singapor",
+    "Mbërritje në Colombo",
+    "Nisje nga Colombo"
   ],
-  "last_movement_at": "2026-09-21T12:26:30Z",
+  "last_movement_at": "2026-09-21T19:10:19Z",
   "stall_alert_sent": false,
   "approach_alert_sent": false
 }
