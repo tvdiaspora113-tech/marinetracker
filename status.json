@@ -7,25 +7,18 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 9.3707,
-    "lon": 68.2298
+    "lat": 10.3819,
+    "lon": 65.0707
   },
   "vessel": {
-    "lat": 9.3707,
-    "lon": 68.2298,
+    "lat": 10.3819,
+    "lon": 65.0707,
     "destination": "SUEZ CANAL",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
     "source": "CIG (koordinata) + MyShipTracking (destinacion)"
   },
   "history": [
-    {
-      "timestamp": "2026-09-22T11:16:12Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 6.3129,
-      "vessel_lon": 77.731,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
     {
       "timestamp": "2026-09-22T16:38:28Z",
       "cig_status": "Loaded on Board",
@@ -88,6 +81,13 @@
       "vessel_lat": 9.3707,
       "vessel_lon": 68.2298,
       "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    },
+    {
+      "timestamp": "2026-09-24T15:46:05Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 10.3819,
+      "vessel_lon": 65.0707,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
     }
   ],
   "consecutive_failures": 0,
@@ -98,7 +98,7 @@
     "Mbërritje në Colombo",
     "Nisje nga Colombo"
   ],
-  "last_movement_at": "2026-09-24T04:03:33Z",
+  "last_movement_at": "2026-09-24T15:46:05Z",
   "stall_alert_sent": false,
   "approach_alert_sent": false
 }
