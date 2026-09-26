@@ -20,13 +20,6 @@
   },
   "history": [
     {
-      "timestamp": "2026-09-24T11:25:34Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 9.3707,
-      "vessel_lon": 68.2298,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
-    {
       "timestamp": "2026-09-24T15:46:05Z",
       "cig_status": "Loaded on Board",
       "vessel_lat": 10.3819,
@@ -88,6 +81,13 @@
       "vessel_lat": 12.0561,
       "vessel_lon": 60.0791,
       "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
+    },
+    {
+      "timestamp": "2026-09-26T07:58:23Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 12.0561,
+      "vessel_lon": 60.0791,
+      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
     }
   ],
   "consecutive_failures": 0,
@@ -99,6 +99,6 @@
     "Nisje nga Colombo"
   ],
   "last_movement_at": "2026-09-25T18:22:19Z",
-  "stall_alert_sent": false,
+  "stall_alert_sent": true,
   "approach_alert_sent": false
 }
