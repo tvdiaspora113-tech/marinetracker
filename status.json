@@ -7,25 +7,18 @@
     "vessel_name": "MV GMT ASTRO V.2609",
     "etd": "2026-09-07",
     "eta": "(DURRES, ALBANIA)",
-    "lat": 12.1163,
-    "lon": 45.5034
+    "lat": 13.2405,
+    "lon": 43.058
   },
   "vessel": {
-    "lat": 12.1163,
-    "lon": 45.5034,
+    "lat": 13.2405,
+    "lon": 43.058,
     "destination": "DURRES, ALBANIA",
     "eta": "(DURRES, ALBANIA)",
     "nav_status": "Loaded on Board",
     "source": "CIG (koordinata)"
   },
   "history": [
-    {
-      "timestamp": "2026-09-26T12:26:22Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 12.0561,
-      "vessel_lon": 60.0791,
-      "vessel_source": "CIG (koordinata) + MyShipTracking (destinacion)"
-    },
     {
       "timestamp": "2026-09-26T16:07:23Z",
       "cig_status": "Loaded on Board",
@@ -88,6 +81,13 @@
       "vessel_lat": 12.1163,
       "vessel_lon": 45.5034,
       "vessel_source": "CIG (koordinata)"
+    },
+    {
+      "timestamp": "2026-09-28T20:27:45Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 13.2405,
+      "vessel_lon": 43.058,
+      "vessel_source": "CIG (koordinata)"
     }
   ],
   "consecutive_failures": 0,
@@ -96,9 +96,10 @@
     "Mbërritje në Singapor",
     "Nisje nga Singapor",
     "Mbërritje në Colombo",
-    "Nisje nga Colombo"
+    "Nisje nga Colombo",
+    "Kaloi Bab-el-Mandeb"
   ],
-  "last_movement_at": "2026-09-28T13:25:23Z",
+  "last_movement_at": "2026-09-28T20:27:45Z",
   "stall_alert_sent": false,
   "approach_alert_sent": false
 }
