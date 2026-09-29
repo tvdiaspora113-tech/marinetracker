@@ -20,13 +20,6 @@
   },
   "history": [
     {
-      "timestamp": "2026-09-27T00:23:17Z",
-      "cig_status": "Loaded on Board",
-      "vessel_lat": 12.0561,
-      "vessel_lon": 60.0791,
-      "vessel_source": "CIG (koordinata)"
-    },
-    {
       "timestamp": "2026-09-27T07:52:46Z",
       "cig_status": "Loaded on Board",
       "vessel_lat": 12.0561,
@@ -88,9 +81,16 @@
       "vessel_lat": 13.2405,
       "vessel_lon": 43.058,
       "vessel_source": "asnjë"
+    },
+    {
+      "timestamp": "2026-09-29T08:47:52Z",
+      "cig_status": "Loaded on Board",
+      "vessel_lat": 13.2405,
+      "vessel_lon": 43.058,
+      "vessel_source": "asnjë"
     }
   ],
-  "consecutive_failures": 2,
+  "consecutive_failures": 3,
   "waypoints_passed": [
     "Kaloi Ngushticën e Malakës",
     "Mbërritje në Singapor",
