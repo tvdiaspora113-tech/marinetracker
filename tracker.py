@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Monitoron statusin e dërgesës (CIG) dhe pozicionin e anijes.
 
-Burimet e pozicionit të anijes (kombinohen):
-  - Koordinatat (lat/lon): PARA SË GJITHASH nga CIGBooking, sepse janë më
-    të sakta dhe përditësohen më shpejt. Nëse CIG s'ka koordinata, bie
-    mbrapa (fallback) te MyShipTracking për gjithçka.
-  - Destinacioni (porti i ardhshëm, p.sh. SINGAPORE, Colombo): gjithmonë
-    nga MyShipTracking (me CIG si rezervë nëse MST s'e ka).
-  - ETA: nga CIG (për Durrësin) nëse e ka, përndryshe nga MyShipTracking.
-  - Statusi: nga CIG (current_status) nëse e ka, përndryshe nga
-    MyShipTracking (nav_status).
+Burimet e pozicionit të anijes:
+  - MyShipTracking (MST) është burimi KRYESOR dhe i besueshëm.
+  - CIGBooking është OPSIONAL: tani ka mbrojtje anti-bot (Cloudflare) dhe
+    shpesh bllokohet. Provohet një herë, pa pritje/retry; nëse dështon,
+    thjesht kalohet mbi të (pa alarm) dhe përdoret MST për gjithçka.
+    Kur CIG punon, përdoren koordinatat e tij (më të sakta) dhe statusi i
+    dërgesës prej andej; kur nuk punon, statusi/ETA i fundit i ruajtur
+    mbetet në status.json.
+  - ETA për Durrësin vjen vetëm nga CIG. ETA e MST është për portin e
+    ardhshëm (p.sh. Singapor) dhe shfaqet e etiketuar kështu.
 
 Ekzekutohet çdo 2 orë nga GitHub Actions. Dërgon njoftime në Telegram kur:
   - statusi i dërgesës në CIG ndryshon
@@ -105,6 +106,19 @@ APPROACH_ALERT_KM = float(os.environ.get("APPROACH_ALERT_KM", "300"))
 
 RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 30
+
+# MST: më pak përpjekje sepse çdo përpjekje provon disa metoda (cloudscraper,
+# requests, opsionalisht Selenium).
+MST_ATTEMPTS = int(os.environ.get("MST_ATTEMPTS", "2"))
+MST_RETRY_DELAY_SECONDS = int(os.environ.get("MST_RETRY_DELAY_SECONDS", "15"))
+
+# CIG është opsional (mbrojtje anti-bot). Vendos CIG_ENABLED=false për ta
+# çaktivizuar fare dhe për të kursyer kohë.
+CIG_ENABLED = os.environ.get("CIG_ENABLED", "true").lower() == "true"
+
+# Selenium (Chrome headless) si mënyrë e fundit për MST/CIG. I fikur si
+# parazgjedhje; aktivizohet me ENABLE_SELENIUM=true te tracker.yml.
+ENABLE_SELENIUM = os.environ.get("ENABLE_SELENIUM", "false").lower() == "true"
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
@@ -497,6 +511,58 @@ def get_scraper():
     return _scraper
 
 
+_BLOCK_MARKERS = (
+    "just a moment",
+    "attention required",
+    "cf-challenge",
+    "challenge-platform",
+    "cf-turnstile",
+    "cf_chl_opt",
+    "enable javascript and cookies",
+    "verify you are human",
+    "are you a robot",
+    "access denied",
+    "captcha",
+)
+
+
+def looks_like_block_page(html: str) -> str | None:
+    """Kthen arsyen (tekst) nëse HTML duket si faqe bllokimi anti-bot
+    (Cloudflare/captcha) dhe jo faqja e vërtetë; përndryshe None.
+
+    E rëndësishme: pa këtë kontroll, parseri mund të kapë numra të
+    rastësishëm nga faqja e bllokimit dhe t'i marrë për koordinata.
+    """
+    head = html[:6000].lower()
+    for marker in _BLOCK_MARKERS:
+        if marker in head:
+            return marker
+    return None
+
+
+def selenium_get(url: str, wait_seconds: int = 8) -> str:
+    """Hap URL-në me Chrome headless (Selenium 4.20+ shkarkon vetë
+    chromedriver përmes Selenium Manager). Përdoret vetëm nëse
+    ENABLE_SELENIUM=true."""
+    from selenium import webdriver  # import i vonuar: opsional
+    from selenium.webdriver.chrome.options import Options
+
+    opts = Options()
+    opts.add_argument("--headless=new")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--window-size=1366,900")
+    opts.add_argument(f"--user-agent={HEADERS['User-Agent']}")
+    driver = webdriver.Chrome(options=opts)
+    try:
+        driver.set_page_load_timeout(60)
+        driver.get(url)
+        time.sleep(wait_seconds)
+        return driver.page_source
+    finally:
+        driver.quit()
+
+
 def http_get(url: str, use_cloudscraper: bool = False, timeout: int = 25) -> str:
     if use_cloudscraper:
         scraper = get_scraper()
@@ -509,7 +575,40 @@ def http_get(url: str, use_cloudscraper: bool = False, timeout: int = 25) -> str
     if len(resp.text) < 500:
         # faqe bosh / bllok Cloudflare pa status code gabimi
         raise RuntimeError(f"Përgjigje shumë e shkurtër ({len(resp.text)} bytes), ka gjasa bllok anti-bot")
+    reason = looks_like_block_page(resp.text)
+    if reason:
+        raise RuntimeError(f"Faqe bllokimi anti-bot (u gjet '{reason}')")
     return resp.text
+
+
+def get_html_multi(url: str, label: str) -> str:
+    """Provon të marrë HTML-në me disa metoda me radhë: cloudscraper,
+    requests i thjeshtë, dhe (nëse ENABLE_SELENIUM=true) Selenium. Kthen
+    HTML-në e parë që s'është bllok; ngre RuntimeError me të gjitha
+    arsyet nëse dështojnë të gjitha."""
+    errors = []
+    methods = [
+        ("cloudscraper", lambda: http_get(url, use_cloudscraper=True)),
+        ("requests", lambda: http_get(url, use_cloudscraper=False)),
+    ]
+    if ENABLE_SELENIUM:
+        def _sel():
+            html = selenium_get(url)
+            reason = looks_like_block_page(html)
+            if reason:
+                raise RuntimeError(f"Faqe bllokimi anti-bot (u gjet '{reason}')")
+            return html
+        methods.append(("selenium", _sel))
+
+    for name, fn in methods:
+        try:
+            html = fn()
+            log.info(f"{label}: faqja u mor me {name}")
+            return html
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{name}: {e}")
+            log.info(f"{label}: {name} dështoi: {e}")
+    raise RuntimeError(f"{label}: dështuan të gjitha metodat -> " + " | ".join(errors))
 
 
 # ------------------------------------------------------------- CIG PARSER --
@@ -545,21 +644,42 @@ def parse_cig(html: str) -> dict:
         data["eta"] = after(eta_label)
 
     pos_match = re.search(r"Position\s*\n?\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)", text)
-    if not pos_match:
+    # Rezerva e gjerë (çdo çift numrash) lejohet vetëm nëse faqja ka fusha
+    # të vërteta CIG; përndryshe një faqe bllokimi mund të japë "koordinata"
+    # të rreme.
+    if not pos_match and (data["shipper"] or data["current_status"] or data["vessel_name"]):
         pos_match = re.search(r"(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)", text)
     if pos_match:
-        data["lat"] = float(pos_match.group(1))
-        data["lon"] = float(pos_match.group(2))
+        lat, lon = float(pos_match.group(1)), float(pos_match.group(2))
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            data["lat"] = lat
+            data["lon"] = lon
 
     return data
 
 
 def fetch_cig() -> dict:
-    html = http_get(CIG_URL, use_cloudscraper=False)
+    html = get_html_multi(CIG_URL, "CIG")
     data = parse_cig(html)
     if not data.get("current_status") and not data.get("lat"):
         raise RuntimeError("CIG: s'u gjet asnjë fushë e njohur në faqe")
     return data
+
+
+def get_cig_data() -> tuple[dict, bool]:
+    """CIG është OPSIONAL. Provohet vetëm një herë (pa retry/pauza), sepse
+    kur bllokohet nga anti-bot përpjekjet e përsëritura vetëm humbasin
+    kohë. Kthen (të_dhënat, sukses). Dështimi s'është alarm."""
+    if not CIG_ENABLED:
+        log.info("CIG i çaktivizuar (CIG_ENABLED=false) - kalohet")
+        return {}, False
+    try:
+        data = fetch_cig()
+        log.info("CIG u mor me sukses")
+        return data, True
+    except Exception as e:  # noqa: BLE001
+        log.warning(f"CIG s'u mor (ka gjasa mbrojtje anti-bot) - vazhdoj vetëm me MyShipTracking: {e}")
+        return {}, False
 
 
 # --------------------------------------------------------- MYSHIPTRACKING --
@@ -573,16 +693,30 @@ def parse_myshiptracking(html: str) -> dict:
     text = soup.get_text(" ", strip=True)
     data = {}
 
-    m = re.search(
+    coord_patterns = (
+        # "... with coordinates 28.7228° / 123.8114°"
         r"coordinates\D{0,10}(-?\d{1,3}\.\d+)°?\s*/\s*(-?\d{1,3}\.\d+)°?",
-        text,
-    )
-    if not m:
+        # tabela: "Latitude / Longitude  28.7228° / 123.8114°"
+        r"Latitude\s*/\s*Longitude\D{0,10}(-?\d{1,3}\.\d+)°?\s*/\s*(-?\d{1,3}\.\d+)°?",
         # rezervë: ndonjë hyrje në tabelën e "Events" (LAT / LON)
-        m = re.search(r"(-?\d{1,2}\.\d{4,6})\s*/\s*(-?\d{1,3}\.\d{4,6})", text)
+        r"(-?\d{1,2}\.\d{4,6})°?\s*/\s*(-?\d{1,3}\.\d{4,6})°?",
+    )
+    m = None
+    for pat in coord_patterns:
+        m = re.search(pat, text)
+        if m:
+            break
+    if not m:
+        # rezervë e fundit: JSON i ngulitur në HTML ("lat":..,"lng"/"lon":..)
+        m = re.search(
+            r'"lat(?:itude)?"\s*:\s*"?(-?\d{1,2}\.\d+)"?\s*,\s*"(?:lng|lon|long|longitude)"\s*:\s*"?(-?\d{1,3}\.\d+)"?',
+            html,
+        )
     if m:
-        data["lat"] = float(m.group(1))
-        data["lon"] = float(m.group(2))
+        lat, lon = float(m.group(1)), float(m.group(2))
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            data["lat"] = lat
+            data["lon"] = lon
 
     dest_m = re.search(r"heading at the port of\s+([A-Z][A-Za-z0-9 .\-']+?)[\.\n]", text)
     if dest_m:
@@ -601,11 +735,13 @@ def parse_myshiptracking(html: str) -> dict:
     return data
 
 
-def fetch_myshiptracking_cloudscraper() -> dict:
-    html = http_get(MST_URL, use_cloudscraper=True)
+def fetch_myshiptracking() -> dict:
+    """Merr faqen e MST me disa metoda (cloudscraper -> requests ->
+    Selenium nëse është aktivizuar) dhe e parson."""
+    html = get_html_multi(MST_URL, "MyShipTracking")
     data = parse_myshiptracking(html)
     if data.get("lat") is None:
-        raise RuntimeError("MyShipTracking (cloudscraper): s'u gjetën koordinata")
+        raise RuntimeError("MyShipTracking: faqja u mor por s'u gjetën koordinata (struktura mund të ketë ndryshuar)")
     return data
 
 
@@ -619,9 +755,9 @@ def get_mst_data() -> dict:
     """
     try:
         data = retry_fetch(
-            fetch_myshiptracking_cloudscraper,
-            attempts=RETRY_ATTEMPTS,
-            delay=RETRY_DELAY_SECONDS,
+            fetch_myshiptracking,
+            attempts=MST_ATTEMPTS,
+            delay=MST_RETRY_DELAY_SECONDS,
         )
         log.info("Të dhënat nga MyShipTracking u morën me sukses")
         return data
@@ -630,95 +766,58 @@ def get_mst_data() -> dict:
         return {}
 
 
-def build_vessel_data(cig_data: dict) -> tuple[dict, str]:
-    """Kombinon CIG dhe MyShipTracking sipas rregullave:
+def build_vessel_data(cig_data: dict, fallback_eta: str | None = None) -> tuple[dict, str]:
+    """Kombinon MyShipTracking (burimi kryesor) dhe CIG (opsional).
 
-    - Nëse CIG ka koordinata (lat/lon) -> përdoren ato si burim kryesor
-      i pozicionit (më të sakta, përditësohen më shpejt).
-        - Destinacioni merret nga MyShipTracking (porti i ardhshëm, p.sh.
-          SINGAPORE, Colombo); nëse MST s'e ka, bie mbrapa te destinacioni
-          i CIG.
-        - ETA merret nga CIG (për Durrësin) nëse e ka, përndryshe nga
-          MyShipTracking.
-        - Statusi merret nga CIG (current_status) nëse e ka, përndryshe
-          nga MyShipTracking (nav_status).
-    - Nëse CIG s'ka koordinata -> MyShipTracking bëhet burim rezervë
-      (fallback) për GJITHÇKA (koordinata, destinacion, ETA, status).
+    - MST jep: koordinata, destinacionin (porti i ardhshëm), ETA e portit
+      të ardhshëm (`next_port_eta`) dhe nav_status.
+    - CIG (nëse u mor): koordinatat e tij kanë përparësi (më të sakta),
+      plus statusi i dërgesës dhe ETA për Durrësin (`eta`).
+    - Nëse CIG s'u mor, `eta` (Durrës) merret nga vlera e fundit e ruajtur
+      (`fallback_eta`), pasi MST s'e ka ETA-n për Durrësin.
 
-    Kthen (të dhëna, emri_burimit) ose ({}, "asnjë") nëse asnjë burim s'ka
-    koordinata.
+    Kthen (të dhëna, emri_burimit) ose ({}, "asnjë") nëse asnjë burim
+    s'ka koordinata.
     """
     mst_data = get_mst_data()
 
     cig_has_coords = cig_data.get("lat") is not None and cig_data.get("lon") is not None
+    mst_has_coords = mst_data.get("lat") is not None and mst_data.get("lon") is not None
+
+    durres_eta = cig_data.get("eta") or fallback_eta
+    common = {
+        "destination": mst_data.get("destination") or cig_data.get("destination"),
+        "eta": durres_eta,
+        "next_port_eta": mst_data.get("eta"),
+        "nav_status": cig_data.get("current_status") or mst_data.get("nav_status"),
+    }
 
     if cig_has_coords:
-        merged = {
-            "lat": cig_data["lat"],
-            "lon": cig_data["lon"],
-            "destination": mst_data.get("destination") or cig_data.get("destination"),
-            "eta": cig_data.get("eta") or mst_data.get("eta"),
-            "nav_status": cig_data.get("current_status") or mst_data.get("nav_status"),
-        }
         source = "CIG (koordinata)"
         if mst_data.get("destination"):
             source += " + MyShipTracking (destinacion)"
-        log.info(
-            "Koordinatat u morën nga CIG; destinacioni/ETA/statusi u "
-            "plotësuan duke kombinuar CIG dhe MyShipTracking"
-        )
-        return merged, source
+        log.info("Koordinatat u morën nga CIG; pjesa tjetër u plotësua me MyShipTracking")
+        return {"lat": cig_data["lat"], "lon": cig_data["lon"], **common}, source
 
-    if mst_data.get("lat") is not None and mst_data.get("lon") is not None:
-        log.info("CIG s'ka koordinata - përdor MyShipTracking si rezervë (fallback) për gjithçka")
-        return mst_data, "MyShipTracking (fallback - CIG pa koordinata)"
+    if mst_has_coords:
+        log.info("Pozicioni u mor nga MyShipTracking (CIG s'ka koordinata)")
+        return {"lat": mst_data["lat"], "lon": mst_data["lon"], **common}, "MyShipTracking"
 
     log.warning("As CIG dhe as MyShipTracking s'kanë koordinata")
     return {}, "asnjë"
 
 
-def render_status_block(
-    vf_data: dict,
-    dist_km: float | None,
-    is_first_position: bool,
-    traveled_km: float,
-    durres_remaining_km: float,
-    eta_raw,
-    title: str = "Mercedes Benz GLA",
-) -> str:
-    """Ndërton bllokun kryesor të mesazhit, në renditjen:
-
-        <b>{title}</b> - 🕐 Ora: {ora}
-        {shirit progresi} ({km e përshkuara}>{km të mbetura})
-        {lëvizja që nga njoftimi i fundit}
-        {ETA}
-        Destinacioni: ...
-        Harta: ...
-
-    Përdoret si nga njoftimet normale (main()) ashtu edhe nga mesazhi i
-    ekzekutimit manual (build_manual_status_message), që të dyja të dalin
-    me të njëjtin format."""
-    maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
-    if is_first_position:
-        dist_line = "Pozicioni i parë i regjistruar\n"
-    else:
-        dist_line = f"Lëvizje: {dist_km:.1f} km\n"
-
-    time_str = ship_local_time_str(vf_data["lon"])
-    progress_line = (
-        f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)} "
-        f"({format_km(traveled_km)}>{format_km(durres_remaining_km)})\n"
-    )
-    eta_line = f"{format_eta_line(eta_raw)}\n"
-
-    return (
-        f"<b>{title}</b> - 🕐 Ora: {time_str}\n"
-        f"{progress_line}"
-        f"{dist_line}"
-        f"{eta_line}"
-        f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
-        f"Harta: {maps_link}"
-    )
+def eta_line_for(vf_data: dict) -> str:
+    """Rreshti i ETA-s: ETA për Durrësin (nga CIG) nëse ekziston dhe
+    parsohet; përndryshe ETA e portit të ardhshëm nga MST, e etiketuar
+    qartë (që të mos ngatërrohet me mbërritjen në Durrës)."""
+    if parse_eta(vf_data.get("eta")):
+        return format_eta_line(vf_data.get("eta"))
+    next_eta = parse_eta(vf_data.get("next_port_eta"))
+    if next_eta:
+        port = vf_data.get("destination") or "portin e ardhshëm"
+        return f"📅 ETA në {port}: {next_eta.strftime('%d.%m.%Y %H:%M')} (ETA për Durrësin: e panjohur)"
+    return "📅 ETA: e panjohur"
 
 
 def build_manual_status_message(
@@ -727,15 +826,37 @@ def build_manual_status_message(
     is_first_position: bool,
     traveled_km: float,
     durres_remaining_km: float,
-    eta_raw,
 ) -> str:
     """Ndërton mesazhin e statusit aktual të anijes (të njëjtin format si
     njoftimi normal i lëvizjes), përdorur kur workflow-u niset manualisht
     (workflow_dispatch) dhe s'ka pasur asnjë njoftim tjetër për t'u dërguar -
     kështu përdoruesi merr gjithmonë një konfirmim kur e ekzekuton testin me
     dorë, edhe nëse s'ka ndryshuar asgjë."""
-    return render_status_block(
-        vf_data, dist_km, is_first_position, traveled_km, durres_remaining_km, eta_raw
+    maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
+    if is_first_position:
+        dist_line = "Pozicioni i parë i regjistruar\n"
+    else:
+        dist_line = f"Lëvizje: {dist_km:.1f} km\n"
+
+    traveled_line = f"Përshkuar: {format_km(traveled_km)}\n"
+    progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
+    durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
+
+    time_line = f"🕐 Ora (vendore anijes): {ship_local_time_str(vf_data['lon'])}\n"
+
+    eta_line = f"{eta_line_for(vf_data)}\n"
+
+    return (
+        "<b>Mercedes Benz GLA</b>\n"
+        f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
+        f"{dist_line}"
+        f"{traveled_line}"
+        f"{progress_line}"
+        f"{durres_line}"
+        f"{time_line}"
+        f"{eta_line}"
+        f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
+        f"Harta: {maps_link}"
     )
 
 
@@ -750,13 +871,8 @@ def main() -> int:
     cig_ok = False
     vessel_ok = False
 
-    # --- CIG ---
-    try:
-        cig_data = retry_fetch(fetch_cig, attempts=RETRY_ATTEMPTS, delay=RETRY_DELAY_SECONDS)
-        cig_ok = True
-    except Exception as e:
-        log.error(f"CIG dështoi plotësisht pas {RETRY_ATTEMPTS} përpjekjesh: {e}")
-        cig_data = {}
+    # --- CIG (opsional: bllokohet shpesh nga anti-bot, s'është alarm) ---
+    cig_data, cig_ok = get_cig_data()
 
     if cig_data:
         new_status_text = cig_data.get("current_status", "")
@@ -772,7 +888,7 @@ def main() -> int:
         status["cig"] = {**prev_cig, **cig_data}
 
     # --- Vessel (CIG për koordinata + MyShipTracking për destinacion) ---
-    vf_data, source = build_vessel_data(cig_data)
+    vf_data, source = build_vessel_data(cig_data, fallback_eta=prev_cig.get("eta"))
     if vf_data.get("lat") is not None and vf_data.get("lon") is not None:
         vessel_ok = True
         old_lat = prev_vessel.get("lat")
@@ -828,14 +944,26 @@ def main() -> int:
                 notifications.append(
                     "🏁 <b>Anija po afrohet Durrësit!</b>\n"
                     f"Mbetet vetëm {format_km(durres_remaining_km)} deri në Durrës.\n"
-                    f"{format_eta_line(cig_data.get('eta') or vf_data.get('eta'))}"
+                    f"{eta_line_for(vf_data)}"
                 )
                 status["approach_alert_sent"] = True
         else:
             status["approach_alert_sent"] = False
 
         if moved:
-            eta_raw = cig_data.get("eta") or vf_data.get("eta")
+            maps_link = f"https://www.google.com/maps?q={vf_data['lat']},{vf_data['lon']}"
+            if is_first_position:
+                dist_line = "Pozicioni i parë i regjistruar\n"
+            else:
+                dist_line = f"Lëvizje: {dist_km:.1f} km\n"
+
+            traveled_line = f"Përshkuar: {format_km(traveled_km)}\n"
+            progress_line = f"{progress_bar(traveled_km, KNOWN_REAL_SEA_KM)}\n"
+            durres_line = f"📏 Distanca detare nga Durrësi: {format_km(durres_remaining_km)}\n"
+
+            time_line = f"🕐 Ora (vendore anijes): {ship_local_time_str(vf_data['lon'])}\n"
+
+            eta_line = f"{eta_line_for(vf_data)}\n"
 
             events_block = ""
             if newly_passed:
@@ -843,26 +971,27 @@ def main() -> int:
                 events_block = f"🔄 <b>Ngjarje të reja:</b>\n{events_lines}\n\n"
 
             title = (
-                "🛳 Pozicioni i parë i anijes u regjistrua"
+                "🛳 <b>Pozicioni i parë i anijes u regjistrua</b>\n"
                 if is_first_position
-                else "Mercedes Benz GLA"
+                else "<b>Mercedes Benz GLA</b>\n"
             )
-
             notifications.append(
-                events_block
-                + render_status_block(
-                    vf_data,
-                    dist_km,
-                    is_first_position,
-                    traveled_km,
-                    durres_remaining_km,
-                    eta_raw,
-                    title=title,
-                )
+                events_block +
+                title +
+                f"Koordinata: {vf_data['lat']}, {vf_data['lon']}\n"
+                f"{dist_line}"
+                f"{traveled_line}"
+                f"{progress_line}"
+                f"{durres_line}"
+                f"{time_line}"
+                f"{eta_line}"
+                f"Destinacioni: {vf_data.get('destination', vf_data.get('destination_hint', '—'))}\n"
+                f"Harta: {maps_link}"
             )
         status["vessel"] = {**prev_vessel, **vf_data, "source": source}
 
-    push_history(status, cig_data, vf_data, source)
+    if vessel_ok or cig_ok:
+        push_history(status, cig_data, vf_data, source)
 
     # --- Failure tracking & njoftim urgjence ---
     system_failed = not (cig_ok or vessel_ok)
@@ -885,10 +1014,9 @@ def main() -> int:
     # --- Ekzekutim manual: dërgo GJITHMONË një njoftim, edhe pa ndryshim ---
     if IS_MANUAL_RUN and not notifications:
         if vf_data.get("lat") is not None and vf_data.get("lon") is not None:
-            eta_raw = cig_data.get("eta") or vf_data.get("eta")
             send_telegram(
                 build_manual_status_message(
-                    vf_data, dist_km, is_first_position, traveled_km, durres_remaining_km, eta_raw
+                    vf_data, dist_km, is_first_position, traveled_km, durres_remaining_km
                 ),
                 force=True,
             )
@@ -904,7 +1032,7 @@ def main() -> int:
         log.info("Asnjë ndryshim")
 
     log.info(
-        f"Përfundoi: CIG={'OK' if cig_ok else 'DËSHTOI'}, "
+        f"Përfundoi: CIG={'OK' if cig_ok else 'kaluar/bllokuar (opsional)'}, "
         f"Anija={'OK (' + source + ')' if vessel_ok else 'DËSHTOI'}, "
         f"dështime rresht={status['consecutive_failures']}"
     )
