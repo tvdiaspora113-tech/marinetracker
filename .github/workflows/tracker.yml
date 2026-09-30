@@ -29,6 +29,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TRACKER_TZ: "Europe/Tirane"
           MOVE_THRESHOLD_KM: "5"
+          ENABLE_SELENIUM: "true"   # mënyra e fundit nëse cloudscraper bllokohet (Chrome është i para-instaluar në ubuntu-latest)
+          CIG_ENABLED: "true"       # vendos "false" për ta fikur fare CIG-un (bllokohet nga anti-bot)
           GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: python tracker.py
 
